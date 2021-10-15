@@ -3,6 +3,7 @@
 #include "Components/ActorComponent.h"
 #include "GameplayTagContainer.h"
 
+#include "FlowSave.h"
 #include "FlowTypes.h"
 #include "FlowComponent.generated.h"
 
@@ -175,6 +176,9 @@ public:
 	// If false, another Root Flow instance won't be created from this component, if this Flow Asset is already instantiated
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "RootFlow")
 	bool bAllowMultipleInstances;
+
+	UPROPERTY(SaveGame)
+	FString SavedAssetInstanceName;
 	
 	// This will instantiate Flow Asset assigned on this component.
 	// Created Flow Asset instance will be a "root flow", as additional Flow Assets can be instantiated via Sub Graph node
@@ -183,14 +187,37 @@ public:
 
 	// This will destroy instantiated Flow Asset - created from asset assigned on this component.
 	UFUNCTION(BlueprintCallable, Category = "RootFlow")
-	void FinishRootFlow();
+	void FinishRootFlow(const EFlowFinishPolicy FinishPolicy);
 
 	UFUNCTION(BlueprintPure, Category = "RootFlow")
 	UFlowAsset* GetRootFlowInstance();
 
 //////////////////////////////////////////////////////////////////////////
+// SaveGame
+
+	UFUNCTION(BlueprintCallable, Category = "SaveGame")
+	virtual void SaveRootFlow(TArray<FFlowAssetSaveData>& SavedFlowInstances);
+
+	UFUNCTION(BlueprintCallable, Category = "SaveGame")
+	virtual void LoadRootFlow();
+
+	UFUNCTION(BlueprintCallable, Category = "SaveGame")
+	FFlowComponentSaveData SaveInstance();
+
+	UFUNCTION(BlueprintCallable, Category = "SaveGame")
+	bool LoadInstance();
+
+protected:
+	UFUNCTION(BlueprintNativeEvent, Category = "SaveGame")
+	void OnSave();
+	
+	UFUNCTION(BlueprintNativeEvent, Category = "SaveGame")
+	void OnLoad();
+	
+//////////////////////////////////////////////////////////////////////////
 // Helpers
 
+public:
 	UFlowSubsystem* GetFlowSubsystem() const;
 	bool IsFlowNetMode(const EFlowNetMode NetMode) const;
 };

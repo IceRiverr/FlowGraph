@@ -1,6 +1,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "FlowSave.h"
+#include "FlowTypes.h"
 #include "FlowAsset.generated.h"
 
 class UFlowNode;
@@ -40,6 +42,7 @@ class FLOW_API UFlowAsset : public UObject
 	friend class UFlowNode;
 	friend class UFlowNode_CustomOutput;
 	friend class UFlowNode_SubGraph;
+	friend class UFlowSubsystem;
 
 	friend class FFlowAssetDetails;
 
@@ -128,7 +131,7 @@ private:
 #endif
 
 public:
-	void AddInstance(UFlowAsset* NewInstance);
+	void AddInstance(UFlowAsset* Instance);
 	int32 RemoveInstance(UFlowAsset* Instance);
 
 	void ClearInstances();
@@ -184,6 +187,8 @@ private:
 	UPROPERTY()
 	TArray<UFlowNode*> RecordedNodes;
 
+	EFlowFinishPolicy FinishPolicy;
+
 public:
 	void InitializeInstance(const TWeakObjectPtr<UObject> InOwner, UFlowAsset* InTemplateAsset);
 
@@ -202,9 +207,10 @@ public:
 
 	virtual void PreloadNodes();
 
+	virtual void PreStartFlow();
 	virtual void StartFlow();
-	virtual void StartAsSubFlow(UFlowNode_SubGraph* SubGraphNode);
-	virtual void FinishFlow(const bool bFlowCompleted);
+	
+	virtual void FinishFlow(const EFlowFinishPolicy InFinishPolicy);
 
 	// Get Flow Asset instance created by the given SubGraph node
 	TWeakObjectPtr<UFlowAsset> GetFlowInstance(UFlowNode_SubGraph* SubGraphNode) const;
@@ -237,4 +243,20 @@ public:
 	// Returns nodes active in the past, done their work
 	UFUNCTION(BlueprintPure, Category = "Flow")
 	TArray<UFlowNode*> GetRecordedNodes() const { return RecordedNodes; }
+
+//////////////////////////////////////////////////////////////////////////
+// SaveGame
+	
+	UFUNCTION(BlueprintCallable, Category = "Flow")
+	FFlowAssetSaveData SaveInstance(TArray<FFlowAssetSaveData>& SavedFlowInstances);
+
+	UFUNCTION(BlueprintCallable, Category = "Flow")
+	void LoadInstance(const FFlowAssetSaveData& AssetRecord);
+
+protected:
+	UFUNCTION(BlueprintNativeEvent, Category = "SaveGame")
+	void OnSave();
+	
+	UFUNCTION(BlueprintNativeEvent, Category = "SaveGame")
+	void OnLoad();
 };

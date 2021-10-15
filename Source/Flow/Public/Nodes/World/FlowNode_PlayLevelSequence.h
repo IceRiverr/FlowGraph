@@ -21,7 +21,6 @@ UCLASS(NotBlueprintable, meta = (DisplayName = "Play Level Sequence"))
 class FLOW_API UFlowNode_PlayLevelSequence : public UFlowNode
 {
 	GENERATED_UCLASS_BODY()
-
 	friend struct FFlowTrackExecutionToken;
 
 	static FFlowNodeLevelSequenceEvent OnPlaybackStarted;
@@ -30,6 +29,9 @@ class FLOW_API UFlowNode_PlayLevelSequence : public UFlowNode
 	UPROPERTY(EditAnywhere, Category = "Sequence")
 	TSoftObjectPtr<ULevelSequence> Sequence;
 
+	UPROPERTY(EditAnywhere, Category = "Sequence")
+	FMovieSceneSequencePlaybackSettings PlaybackSettings;
+
 protected:
 	UPROPERTY()
 	ULevelSequence* LoadedSequence;
@@ -37,7 +39,14 @@ protected:
 	UPROPERTY()
 	UFlowLevelSequencePlayer* SequencePlayer;
 
+	UPROPERTY(SaveGame)
 	float StartTime;
+
+	UPROPERTY(SaveGame)
+	float ElapsedTime;
+
+	UPROPERTY(SaveGame)
+	float TimeDilation;
 
 public:
 #if WITH_EDITOR
@@ -50,16 +59,19 @@ public:
 	virtual void PreloadContent() override;
 	virtual void FlushContent() override;
 
-	void CreatePlayer(const FMovieSceneSequencePlaybackSettings& PlaybackSettings);
+	void CreatePlayer();
 
 protected:
 	virtual void ExecuteInput(const FName& PinName) override;
+
+	virtual void OnSave_Implementation() override;
+	virtual void OnLoad_Implementation() override;
 
 private:
 	void TriggerEvent(const FString& EventName);
 
 public:
-	void OnTimeDilationUpdate(const float NewTimeDilation) const;
+	void OnTimeDilationUpdate(const float NewTimeDilation);
 
 protected:
 	UFUNCTION()

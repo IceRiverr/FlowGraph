@@ -8,6 +8,9 @@
 #include "Nodes/Route/FlowNode_Finish.h"
 #include "Nodes/Route/FlowNode_SubGraph.h"
 
+#include "Serialization/MemoryReader.h"
+#include "Serialization/MemoryWriter.h"
+
 UFlowAsset::UFlowAsset(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 #if WITH_EDITOR
@@ -15,6 +18,7 @@ UFlowAsset::UFlowAsset(const FObjectInitializer& ObjectInitializer)
 #endif
 	, TemplateAsset(nullptr)
 	, StartNode(nullptr)
+	, FinishPolicy(EFlowFinishPolicy::Keep)
 {
 }
 
@@ -120,7 +124,7 @@ void UFlowAsset::HarvestNodeConnections()
 		{
 			if (ThisPin->Direction == EGPD_Output && ThisPin->LinkedTo.Num() > 0)
 			{
-				if (UEdGraphPin* LinkedPin = ThisPin->LinkedTo[0])
+				if (const UEdGraphPin* LinkedPin = ThisPin->LinkedTo[0])
 				{
 					const UEdGraphNode* LinkedNode = LinkedPin->GetOwningNode();
 					Connections.Add(ThisPin->PinName, FConnectedPin(LinkedNode->NodeGuid, LinkedPin->PinName));
@@ -150,9 +154,9 @@ UFlowNode* UFlowAsset::GetNode(const FGuid& Guid) const
 	return nullptr;
 }
 
-void UFlowAsset::AddInstance(UFlowAsset* NewInstance)
+void UFlowAsset::AddInstance(UFlowAsset* Instance)
 {
-	ActiveInstances.Add(NewInstance);
+	ActiveInstances.Add(Instance);
 }
 
 int32 UFlowAsset::RemoveInstance(UFlowAsset* Instance)
@@ -179,9 +183,9 @@ void UFlowAsset::ClearInstances()
 
 	for (int32 i = ActiveInstances.Num() - 1; i >= 0; i--)
 	{
-		if (ActiveInstances[i])
+		if (ActiveInstances.IsValidIndex(i) && ActiveInstances[i])
 		{
-			ActiveInstances[i]->FinishFlow(false);
+			ActiveInstances[i]->FinishFlow(EFlowFinishPolicy::Keep);
 		}
 	}
 
@@ -191,7 +195,7 @@ void UFlowAsset::ClearInstances()
 #if WITH_EDITOR
 void UFlowAsset::GetInstanceDisplayNames(TArray<TSharedPtr<FName>>& OutDisplayNames) const
 {
-	for (UFlowAsset* Instance : ActiveInstances)
+	for (const UFlowAsset* Instance : ActiveInstances)
 	{
 		OutDisplayNames.Emplace(MakeShareable(new FName(Instance->GetDisplayName())));
 	}
@@ -282,7 +286,7 @@ void UFlowAsset::PreloadNodes()
 	}
 }
 
-void UFlowAsset::StartFlow()
+void UFlowAsset::PreStartFlow()
 {
 	ResetNodes();
 
@@ -296,22 +300,21 @@ void UFlowAsset::StartFlow()
 		TemplateAsset->BroadcastRegenerateToolbars();
 	}
 #endif
+}
+
+void UFlowAsset::StartFlow()
+{
+	PreStartFlow();
 
 	ensureAlways(StartNode);
 	RecordedNodes.Add(StartNode);
 	StartNode->TriggerFirstOutput(true);
 }
 
-void UFlowAsset::StartAsSubFlow(UFlowNode_SubGraph* SubGraphNode)
+void UFlowAsset::FinishFlow(const EFlowFinishPolicy InFinishPolicy)
 {
-	NodeOwningThisAssetInstance = SubGraphNode;
-	NodeOwningThisAssetInstance->GetFlowAsset()->ActiveSubGraphs.Add(SubGraphNode, this);
+	FinishPolicy = InFinishPolicy;
 
-	StartFlow();
-}
-
-void UFlowAsset::FinishFlow(const bool bFlowCompleted)
-{
 	// end execution of this asset and all of its nodes
 	for (UFlowNode* Node : ActiveNodes)
 	{
@@ -331,18 +334,6 @@ void UFlowAsset::FinishFlow(const bool bFlowCompleted)
 	if (ActiveInstancesLeft == 0 && GetFlowSubsystem())
 	{
 		GetFlowSubsystem()->RemoveInstancedTemplate(TemplateAsset);
-	}
-
-	// if this instance was created by SubGraph node
-	if (NodeOwningThisAssetInstance.IsValid())
-	{
-		NodeOwningThisAssetInstance->GetFlowAsset()->ActiveSubGraphs.Remove(NodeOwningThisAssetInstance.Get());
-		if (bFlowCompleted)
-		{
-			NodeOwningThisAssetInstance.Get()->TriggerFirstOutput(true);
-		}
-
-		NodeOwningThisAssetInstance = nullptr;
 	}
 }
 
@@ -389,21 +380,20 @@ void UFlowAsset::FinishNode(UFlowNode* Node)
 	{
 		ActiveNodes.Remove(Node);
 
-		if (Node->GetClass()->IsChildOf(UFlowNode_Finish::StaticClass()))
+		// if graph reached Finish and this asset instance was created by SubGraph node
+		if (Node->GetClass()->IsChildOf(UFlowNode_Finish::StaticClass()) && NodeOwningThisAssetInstance.IsValid())
 		{
-			FinishFlow(true);
+			NodeOwningThisAssetInstance.Get()->TriggerFirstOutput(true);
 		}
 	}
 }
 
 void UFlowAsset::ResetNodes()
 {
-#if !UE_BUILD_SHIPPING
 	for (UFlowNode* Node : RecordedNodes)
 	{
 		Node->ResetRecords();
 	}
-#endif
 
 	RecordedNodes.Empty();
 }
@@ -431,4 +421,70 @@ UFlowAsset* UFlowAsset::GetMasterInstance() const
 UFlowNode* UFlowAsset::GetNodeInstance(const FGuid Guid) const
 {
 	return Nodes.FindRef(Guid);
+}
+
+FFlowAssetSaveData UFlowAsset::SaveInstance(TArray<FFlowAssetSaveData>& SavedFlowInstances)
+{
+	FFlowAssetSaveData AssetRecord;
+
+	//FSoftObjectPtr<UFlowAsset> FlowAsset;
+	//FArchiveUObject::SerializeSoftObjectPtr(AssetRecord.AssetClass, FlowAsset);
+	AssetRecord.InstanceName = GetName();
+
+	OnSave();
+
+	for (const TPair<FGuid, UFlowNode*>& Node : Nodes)
+	{
+		if (Node.Value && Node.Value->ActivationState == EFlowNodeState::Active)
+		{
+			if (UFlowNode_SubGraph* SubGraphNode = Cast<UFlowNode_SubGraph>(Node.Value))
+			{
+				const TWeakObjectPtr<UFlowAsset> SubFlowInstance = GetFlowInstance(SubGraphNode);
+				if (SubFlowInstance.IsValid())
+				{
+					const FFlowAssetSaveData SubAssetRecord = SubFlowInstance->SaveInstance(SavedFlowInstances);
+					SubGraphNode->SavedAssetInstanceName = SubAssetRecord.InstanceName;
+				}
+			}
+
+			FFlowNodeSaveData NodeRecord;
+			Node.Value->SaveInstance(NodeRecord);
+
+			AssetRecord.NodeRecords.Emplace(NodeRecord);
+		}
+	}
+
+	FMemoryWriter MemoryWriter(AssetRecord.AssetData, true);
+	FFlowArchive Ar(MemoryWriter);
+	Serialize(Ar);
+
+	SavedFlowInstances.Emplace(AssetRecord);
+	return AssetRecord;
+}
+
+void UFlowAsset::LoadInstance(const FFlowAssetSaveData& AssetRecord)
+{
+	FMemoryReader MemoryReader(AssetRecord.AssetData, true);
+	FFlowArchive Ar(MemoryReader);
+	Serialize(Ar);
+
+	PreStartFlow();
+
+	for (const FFlowNodeSaveData& NodeRecord : AssetRecord.NodeRecords)
+	{
+		if (UFlowNode* Node = Nodes.FindRef(NodeRecord.NodeGuid))
+		{
+			Node->LoadInstance(NodeRecord);
+		}
+	}
+
+	OnLoad();
+}
+
+void UFlowAsset::OnSave_Implementation()
+{
+}
+
+void UFlowAsset::OnLoad_Implementation()
+{
 }

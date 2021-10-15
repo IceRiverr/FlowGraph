@@ -1,7 +1,19 @@
 #include "Graph/FlowGraphSettings.h"
 
+#include "FlowAsset.h"
+
 UFlowGraphSettings::UFlowGraphSettings(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
+	, ConnectionDrawType(EFlowConnectionDrawType::Default)
+	, ConnectionAngle(45.f)
+	, ConnectionSpacing(FVector2D(30.f))
+	, bShowGraphPreview(true)
+	, bShowGraphPathInPreview(true)
+	, GraphPreviewSize(FVector2D(640.f, 360.f))
+	, bExposeFlowAssetCreation(true)
+	, bExposeFlowNodeCreation(true)
+	, bShowAssetToolbarAboveLevelEditor(true)
+	, WorldAssetClass(UFlowAsset::StaticClass())
 	, bShowDefaultPinNames(false)
 	, ExecPinColorModifier(0.75f, 0.75f, 0.75f, 1.0f)
 	, NodeDescriptionBackground(FLinearColor(0.0625f, 0.0625f, 0.0625f, 1.0f))
