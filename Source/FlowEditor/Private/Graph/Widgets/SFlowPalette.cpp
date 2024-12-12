@@ -1,12 +1,14 @@
+// Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #include "Graph/Widgets/SFlowPalette.h"
 #include "Asset/FlowAssetEditor.h"
 #include "FlowEditorCommands.h"
 #include "Graph/FlowGraphSchema.h"
 #include "Graph/FlowGraphSchema_Actions.h"
 
+#include "FlowAsset.h"
 #include "Nodes/FlowNode.h"
 
-#include "EditorStyleSet.h"
 #include "Fonts/SlateFontInfo.h"
 #include "Styling/CoreStyle.h"
 #include "Styling/SlateBrush.h"
@@ -44,13 +46,13 @@ void SFlowPaletteItem::Construct(const FArguments& InArgs, FCreateWidgetForActio
 	}
 
 	// Find icons
-	const FSlateBrush* IconBrush = FEditorStyle::GetBrush(TEXT("NoBrush"));
+	const FSlateBrush* IconBrush = FAppStyle::GetBrush(TEXT("NoBrush"));
 	const FSlateColor IconColor = FSlateColor::UseForeground();
 	const FText IconToolTip = GraphAction->GetTooltipDescription();
-	const bool bIsReadOnly = false;
+	constexpr bool bIsReadOnly = false;
 
 	const TSharedRef<SWidget> IconWidget = CreateIconWidget(IconToolTip, IconBrush, IconColor);
-	const TSharedRef<SWidget> NameSlotWidget = CreateTextSlotWidget(NameFont, InCreateData, bIsReadOnly);
+	const TSharedRef<SWidget> NameSlotWidget = CreateTextSlotWidget(InCreateData, bIsReadOnly);
 	const TSharedRef<SWidget> HotkeyDisplayWidget = CreateHotkeyDisplayWidget(NameFont, HotkeyChord);
 
 	// Create the actual widget
@@ -98,16 +100,27 @@ FText SFlowPaletteItem::GetItemTooltip() const
 
 void SFlowPalette::Construct(const FArguments& InArgs, TWeakPtr<FFlowAssetEditor> InFlowAssetEditor)
 {
-	FlowAssetEditorPtr = InFlowAssetEditor;
+	FlowAssetEditor = InFlowAssetEditor;
 
 	UpdateCategoryNames();
 	UFlowGraphSchema::OnNodeListChanged.AddSP(this, &SFlowPalette::Refresh);
+
+	struct LocalUtils
+	{
+		static TSharedRef<SExpanderArrow> CreateCustomExpanderStatic(const FCustomExpanderData& ActionMenuData, bool bShowFavoriteToggle)
+		{
+			TSharedPtr<SExpanderArrow> CustomExpander;
+			// in SBlueprintSubPalette here would be a difference depending on bShowFavoriteToggle
+			SAssignNew(CustomExpander, SExpanderArrow, ActionMenuData.TableRow);
+			return CustomExpander.ToSharedRef();
+		}
+	};
 
 	this->ChildSlot
 	[
 		SNew(SBorder)
 			.Padding(2.0f)
-			.BorderImage(FEditorStyle::GetBrush("ToolPanel.GroupBorder"))
+			.BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
 			[
 				SNew(SVerticalBox)
 				+ SVerticalBox::Slot() // Filter UI
@@ -132,6 +145,7 @@ void SFlowPalette::Construct(const FArguments& InArgs, TWeakPtr<FFlowAssetEditor
 							.OnActionSelected(this, &SFlowPalette::OnActionSelected)
 							.OnCreateWidgetForAction(this, &SFlowPalette::OnCreateWidgetForAction)
 							.OnCollectAllActions(this, &SFlowPalette::CollectAllActions)
+							.OnCreateCustomRowExpander_Static(&LocalUtils::CreateCustomExpanderStatic, false)
 							.AutoExpandActionMenu(true)
 					]
 			]
@@ -180,8 +194,11 @@ TSharedRef<SWidget> SFlowPalette::OnCreateWidgetForAction(FCreateWidgetForAction
 
 void SFlowPalette::CollectAllActions(FGraphActionListBuilderBase& OutAllActions)
 {
+	ensureAlways(FlowAssetEditor.Pin() && FlowAssetEditor.Pin()->GetFlowAsset());
+	const UFlowAsset* EditedFlowAsset = FlowAssetEditor.Pin()->GetFlowAsset();
+	
 	FGraphActionMenuBuilder ActionMenuBuilder;
-	UFlowGraphSchema::GetPaletteActions(ActionMenuBuilder, GetFilterCategoryName());
+	UFlowGraphSchema::GetPaletteActions(ActionMenuBuilder, EditedFlowAsset, GetFilterCategoryName());
 	OutAllActions.Append(ActionMenuBuilder);
 }
 
@@ -200,15 +217,11 @@ void SFlowPalette::CategorySelectionChanged(TSharedPtr<FString> NewSelection, ES
 	RefreshActionsList(true);
 }
 
-void SFlowPalette::OnActionSelected(const TArray<TSharedPtr<FEdGraphSchemaAction>>& InActions, ESelectInfo::Type InSelectionType)
+void SFlowPalette::OnActionSelected(const TArray<TSharedPtr<FEdGraphSchemaAction>>& InActions, ESelectInfo::Type InSelectionType) const
 {
 	if (InSelectionType == ESelectInfo::OnMouseClick || InSelectionType == ESelectInfo::OnKeyPress || InSelectionType == ESelectInfo::OnNavigation || InActions.Num() == 0)
 	{
-		TSharedPtr<FFlowAssetEditor> FlowAssetEditor = FlowAssetEditorPtr.Pin();
-		if (FlowAssetEditor)
-		{
-			FlowAssetEditor->SetUISelectionState(FFlowAssetEditor::PaletteTab);
-		}
+		FlowAssetEditor.Pin()->SetUISelectionState(FFlowAssetEditor::PaletteTab);
 	}
 }
 

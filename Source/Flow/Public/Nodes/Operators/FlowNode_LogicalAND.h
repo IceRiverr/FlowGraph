@@ -1,3 +1,5 @@
+// Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #pragma once
 
 #include "Nodes/FlowNode.h"
@@ -7,7 +9,7 @@
  * Logical AND
  * Output will be triggered only once
  */
-UCLASS(NotBlueprintable, meta = (DisplayName = "AND"))
+UCLASS(NotBlueprintable, meta = (DisplayName = "AND", Keywords = "&"))
 class FLOW_API UFlowNode_LogicalAND final : public UFlowNode
 {
 	GENERATED_UCLASS_BODY()

@@ -1,3 +1,5 @@
+// Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #pragma once
 
 #include "Nodes/FlowNode.h"
@@ -13,5 +15,6 @@ class FLOW_API UFlowNode_Finish : public UFlowNode
 	GENERATED_UCLASS_BODY()
 
 protected:
+	virtual bool CanFinishGraph() const override { return true; }
 	virtual void ExecuteInput(const FName& PinName) override;
 };

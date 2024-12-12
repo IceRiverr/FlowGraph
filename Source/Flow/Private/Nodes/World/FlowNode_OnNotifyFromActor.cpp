@@ -1,5 +1,9 @@
+// Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #include "Nodes/World/FlowNode_OnNotifyFromActor.h"
 #include "FlowComponent.h"
+
+#include UE_INLINE_GENERATED_CPP_BY_NAME(FlowNode_OnNotifyFromActor)
 
 UFlowNode_OnNotifyFromActor::UFlowNode_OnNotifyFromActor(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -7,23 +11,8 @@ UFlowNode_OnNotifyFromActor::UFlowNode_OnNotifyFromActor(const FObjectInitialize
 {
 #if WITH_EDITOR
 	Category = TEXT("Notifies");
-	NodeStyle = EFlowNodeStyle::Condition;
+	NodeDisplayStyle = FlowNodeStyle::Condition;
 #endif
-}
-
-void UFlowNode_OnNotifyFromActor::PostLoad()
-{
-	Super::PostLoad();
-
-	if (NotifyTag_DEPRECATED.IsValid())
-	{
-		NotifyTags = FGameplayTagContainer(NotifyTag_DEPRECATED);
-	}
-}
-
-void UFlowNode_OnNotifyFromActor::ExecuteInput(const FName& PinName)
-{
-	Super::ExecuteInput(PinName);
 }
 
 void UFlowNode_OnNotifyFromActor::ObserveActor(TWeakObjectPtr<AActor> Actor, TWeakObjectPtr<UFlowComponent> Component)

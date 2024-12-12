@@ -1,10 +1,12 @@
+// Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #pragma once
 
 #include "Graph/Nodes/FlowGraphNode.h"
 #include "FlowGraphNode_ExecutionSequence.generated.h"
 
 UCLASS()
-class UFlowGraphNode_ExecutionSequence final : public UFlowGraphNode
+class FLOWEDITOR_API UFlowGraphNode_ExecutionSequence : public UFlowGraphNode
 {
 	GENERATED_UCLASS_BODY()
 

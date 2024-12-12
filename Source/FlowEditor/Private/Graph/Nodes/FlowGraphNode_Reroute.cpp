@@ -1,7 +1,11 @@
+// Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #include "Graph/Nodes/FlowGraphNode_Reroute.h"
 #include "SGraphNodeKnot.h"
 
 #include "Nodes/Route/FlowNode_Reroute.h"
+
+#include UE_INLINE_GENERATED_CPP_BY_NAME(FlowGraphNode_Reroute)
 
 UFlowGraphNode_Reroute::UFlowGraphNode_Reroute(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)

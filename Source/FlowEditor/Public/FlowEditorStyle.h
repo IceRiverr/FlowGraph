@@ -1,8 +1,10 @@
+// Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #pragma once
 
 #include "Styling/SlateStyle.h"
 
-class FFlowEditorStyle
+class FLOWEDITOR_API FFlowEditorStyle
 {
 public:
 	static TSharedPtr<ISlateStyle> Get() { return StyleSet; }

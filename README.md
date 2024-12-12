@@ -1,7 +1,7 @@
 ## Concept
-Flow plug-in for Unreal Engine provides a graph editor tailored for scripting flow of events in virtual worlds. It's based on a decade of experience with designing and implementing narrative in video games. All we need here is simplicity.
+Flow plug-in for Unreal Engine is a design-agnostic event node editor. It provides a graph editor tailored for scripting flow of events in virtual worlds. It's based on a decade of experience with designing and implementing narrative in video games. All we need here is simplicity.
 
-It's a design-agnostic event node editor.
+The aim of publishing it as open-source project is to let people tell great stories and construct immersive worlds easier. That allows us to enrich video game storytelling so we can inspire people and make our world a better place.
 
 ![Flow101](https://user-images.githubusercontent.com/5065057/103543817-6d924080-4e9f-11eb-87d9-15ab092c3875.png)
 
@@ -15,9 +15,9 @@ It's a design-agnostic event node editor.
 * It's easy to include plugin in your own project, follow this short [Getting Started](https://github.com/MothCocoon/FlowGraph/wiki/Getting-Started) guide.
 
 ## In-depth video presentation
-This 24-minute presentation breaks down the concept of the Flow Graph. It goes through everything written in this ReadMe but in greater detail.
+This 24-minute presentation breaks down the concept of the Flow Graph. Trust me, you want to understand concept properly before diving into implementation.
 
-[![Introducing Flow Graph for Unreal Engine](https://img.youtube.com/vi/Rj76JP1f-I4/0.jpg)](https://www.youtube.com/watch?v=BAqhccgKx_k)
+[![Introducing Flow Graph for Unreal Engine](https://img.youtube.com/vi/BAqhccgKx_k/0.jpg)](https://www.youtube.com/watch?v=BAqhccgKx_k)
 
 ## Acknowledgements
 I got an opportunity to work on something like the Flow Graph at Reikon Games. They shared my enthusiasm for providing the plugin as open source and as such allowed me to publish this work and keep expanding it as a personal project. Kudos, guys!

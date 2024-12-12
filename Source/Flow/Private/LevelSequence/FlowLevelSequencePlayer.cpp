@@ -1,16 +1,32 @@
+// Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #include "LevelSequence/FlowLevelSequencePlayer.h"
 #include "LevelSequence/FlowLevelSequenceActor.h"
 #include "Nodes/FlowNode.h"
 
+#include "DefaultLevelSequenceInstanceData.h"
+#include "Runtime/Launch/Resources/Version.h"
+
+#include UE_INLINE_GENERATED_CPP_BY_NAME(FlowLevelSequencePlayer)
+
 UFlowLevelSequencePlayer::UFlowLevelSequencePlayer(const FObjectInitializer& ObjectInitializer)
-    : Super(ObjectInitializer)
-    , FlowEventReceiver(nullptr)
+	: Super(ObjectInitializer)
+	, FlowEventReceiver(nullptr)
 {
 }
 
-UFlowLevelSequencePlayer* UFlowLevelSequencePlayer::CreateFlowLevelSequencePlayer(UObject* WorldContextObject, ULevelSequence* InLevelSequence, FMovieSceneSequencePlaybackSettings Settings, ALevelSequenceActor*& OutActor)
+UFlowLevelSequencePlayer* UFlowLevelSequencePlayer::CreateFlowLevelSequencePlayer(
+	const UObject* WorldContextObject,
+	ULevelSequence* LevelSequence,
+	FMovieSceneSequencePlaybackSettings Settings,
+	FLevelSequenceCameraSettings CameraSettings,
+	AActor* TransformOriginActor,
+	const bool bReplicates,
+	const bool bAlwaysRelevant,
+	ALevelSequenceActor*& OutActor
+)
 {
-	if (InLevelSequence == nullptr)
+	if (LevelSequence == nullptr)
 	{
 		return nullptr;
 	}
@@ -21,36 +37,72 @@ UFlowLevelSequencePlayer* UFlowLevelSequencePlayer::CreateFlowLevelSequencePlaye
 		return nullptr;
 	}
 
-	FActorSpawnParameters SpawnParams;
-	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-	SpawnParams.ObjectFlags |= RF_Transient;
-	SpawnParams.bAllowDuringConstructionScript = true;
+	// Sequence Actor might be spawned exactly where playback happens
+	FTransform SpawnTransform = FTransform::Identity;
+	{
+		// apply Transform Origin
+		// https://docs.unrealengine.com/5.0/en-US/creating-level-sequences-with-dynamic-transforms-in-unreal-engine/
+#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION < 4
+		if (IsValid(TransformOriginActor))
+#else
+		if (TransformOriginActor->IsValidLowLevel())
+#endif
+		{
+			// moving Level Sequence Actor might allow proper distance-based actor replication in networked games
+			SpawnTransform = TransformOriginActor->GetTransform();
+			SpawnTransform = FTransform(SpawnTransform.GetRotation(), SpawnTransform.GetLocation(), FVector::OneVector);
+		}
+	}
 
-	// Defer construction for autoplay so that BeginPlay() is called
-	SpawnParams.bDeferConstruction = true;
+	// Create Sequence Actor
+	// We use deferred spawn, so we can set all actor properties prior to its initialization.
+	// This also helpful in case of multiplayer, since all actor settings are replicated with the spawned actor. No need to call replication just after spawn.
+	AFlowLevelSequenceActor* Actor = World->SpawnActorDeferred<AFlowLevelSequenceActor>(AFlowLevelSequenceActor::StaticClass(), SpawnTransform, nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+	Actor->SetPlaybackSettings(Settings);
+	Actor->CameraSettings = CameraSettings;
 
-	ALevelSequenceActor* Actor = World->SpawnActor<AFlowLevelSequenceActor>(SpawnParams);
+	// apply Transform Origin to spawned actor
+#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION < 4
+	if (IsValid(TransformOriginActor))
+#else
+	if (TransformOriginActor->IsValidLowLevel())
+#endif
+	{
+		if (UDefaultLevelSequenceInstanceData* InstanceData = Cast<UDefaultLevelSequenceInstanceData>(Actor->DefaultInstanceData))
+		{
+			Actor->bOverrideInstanceData = true;
+			InstanceData->TransformOriginActor = TransformOriginActor;
+		}
+	}
 
-	Actor->PlaybackSettings = Settings;
-	Actor->LevelSequence = InLevelSequence;
+	// support networking
+	if (bReplicates)
+	{
+		Actor->bReplicatePlayback = true;
+		Actor->bAlwaysRelevant = bAlwaysRelevant;
+		Actor->SetReplicatedLevelSequenceAsset(LevelSequence);
+	}
+	else
+	{
+		Actor->LevelSequenceAsset = LevelSequence;
+	}
 
-	Actor->InitializePlayer();
+	// finish deferred spawn
+	Actor->FinishSpawning(SpawnTransform);
 	OutActor = Actor;
 
-    const FTransform DefaultTransform;
-	Actor->FinishSpawning(DefaultTransform);
-
-	return Cast<UFlowLevelSequencePlayer>(Actor->SequencePlayer);
+	// Sequence Player is created by Level Sequence Actor
+	return Cast<UFlowLevelSequencePlayer>(Actor->GetSequencePlayer());
 }
 
 TArray<UObject*> UFlowLevelSequencePlayer::GetEventContexts() const
 {
 	TArray<UObject*> EventContexts;
-	
-    if (FlowEventReceiver)
-    {
-	    EventContexts.Add(FlowEventReceiver);
-    }
+
+	if (FlowEventReceiver)
+	{
+		EventContexts.Add(FlowEventReceiver);
+	}
 
 	return EventContexts;
 }

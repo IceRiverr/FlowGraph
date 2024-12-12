@@ -1,5 +1,9 @@
+// Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #include "Nodes/World/FlowNode_ComponentObserver.h"
 #include "FlowSubsystem.h"
+
+#include UE_INLINE_GENERATED_CPP_BY_NAME(FlowNode_ComponentObserver)
 
 UFlowNode_ComponentObserver::UFlowNode_ComponentObserver(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -8,22 +12,12 @@ UFlowNode_ComponentObserver::UFlowNode_ComponentObserver(const FObjectInitialize
 	, SuccessCount(0)
 {
 #if WITH_EDITOR
-	NodeStyle = EFlowNodeStyle::Condition;
+	NodeDisplayStyle = FlowNodeStyle::Condition;
 	Category = TEXT("World");
 #endif
 
 	InputPins = {FFlowPin(TEXT("Start")), FFlowPin(TEXT("Stop"))};
 	OutputPins = {FFlowPin(TEXT("Success")), FFlowPin(TEXT("Completed")), FFlowPin(TEXT("Stopped"))};
-}
-
-void UFlowNode_ComponentObserver::PostLoad()
-{
-	Super::PostLoad();
-
-	if (IdentityTag_DEPRECATED.IsValid())
-	{
-		IdentityTags = FGameplayTagContainer(IdentityTag_DEPRECATED);
-	}
 }
 
 void UFlowNode_ComponentObserver::ExecuteInput(const FName& PinName)
@@ -55,24 +49,41 @@ void UFlowNode_ComponentObserver::OnLoad_Implementation()
 
 void UFlowNode_ComponentObserver::StartObserving()
 {
-	for (const TWeakObjectPtr<UFlowComponent>& FoundComponent : GetFlowSubsystem()->GetComponents<UFlowComponent>(IdentityTags, EGameplayContainerMatchType::Any))
+	if (UFlowSubsystem* FlowSubsystem = GetFlowSubsystem())
 	{
-		ObserveActor(FoundComponent->GetOwner(), FoundComponent);
-	}
+		// translate Flow name into engine types
+		const EGameplayContainerMatchType ContainerMatchType = (IdentityMatchType == EFlowTagContainerMatchType::HasAny || IdentityMatchType == EFlowTagContainerMatchType::HasAnyExact) ? EGameplayContainerMatchType::Any : EGameplayContainerMatchType::All;
+		const bool bExactMatch = (IdentityMatchType == EFlowTagContainerMatchType::HasAnyExact || IdentityMatchType == EFlowTagContainerMatchType::HasAllExact);
 
-	GetFlowSubsystem()->OnComponentRegistered.AddDynamic(this, &UFlowNode_ComponentObserver::OnComponentRegistered);
-	GetFlowSubsystem()->OnComponentTagAdded.AddDynamic(this, &UFlowNode_ComponentObserver::OnComponentTagAdded);
-	GetFlowSubsystem()->OnComponentTagRemoved.AddDynamic(this, &UFlowNode_ComponentObserver::OnComponentTagRemoved);
-	GetFlowSubsystem()->OnComponentUnregistered.AddDynamic(this, &UFlowNode_ComponentObserver::OnComponentUnregistered);
+		// collect already registered components
+		for (const TWeakObjectPtr<UFlowComponent>& FoundComponent : FlowSubsystem->GetComponents<UFlowComponent>(IdentityTags, ContainerMatchType, bExactMatch))
+		{
+			ObserveActor(FoundComponent->GetOwner(), FoundComponent);
+			
+			// node might finish work immediately as the effect of ObserveActor()
+			// we should terminate iteration in this case
+			if (GetActivationState() != EFlowNodeState::Active)
+			{
+				return;
+			}
+		}
+		
+		FlowSubsystem->OnComponentRegistered.AddUniqueDynamic(this, &UFlowNode_ComponentObserver::OnComponentRegistered);
+		FlowSubsystem->OnComponentTagAdded.AddUniqueDynamic(this, &UFlowNode_ComponentObserver::OnComponentTagAdded);
+		FlowSubsystem->OnComponentTagRemoved.AddUniqueDynamic(this, &UFlowNode_ComponentObserver::OnComponentTagRemoved);
+		FlowSubsystem->OnComponentUnregistered.AddUniqueDynamic(this, &UFlowNode_ComponentObserver::OnComponentUnregistered);
+	}
 }
 
 void UFlowNode_ComponentObserver::StopObserving()
 {
-	GetFlowSubsystem()->OnComponentRegistered.RemoveAll(this);
-	GetFlowSubsystem()->OnComponentUnregistered.RemoveAll(this);
-
-	GetFlowSubsystem()->OnComponentTagAdded.RemoveAll(this);
-	GetFlowSubsystem()->OnComponentTagRemoved.RemoveAll(this);
+	if (UFlowSubsystem* FlowSubsystem = GetFlowSubsystem())
+	{
+		FlowSubsystem->OnComponentRegistered.RemoveAll(this);
+		FlowSubsystem->OnComponentUnregistered.RemoveAll(this);
+		FlowSubsystem->OnComponentTagAdded.RemoveAll(this);
+		FlowSubsystem->OnComponentTagRemoved.RemoveAll(this);
+	}
 }
 
 void UFlowNode_ComponentObserver::OnComponentRegistered(UFlowComponent* Component)
@@ -140,6 +151,17 @@ void UFlowNode_ComponentObserver::Cleanup()
 FString UFlowNode_ComponentObserver::GetNodeDescription() const
 {
 	return GetIdentityTagsDescription(IdentityTags);
+}
+
+EDataValidationResult UFlowNode_ComponentObserver::ValidateNode()
+{
+	if (IdentityTags.IsEmpty())
+	{
+		ValidationLog.Error<UFlowNode>(*UFlowNode::MissingIdentityTag, this);
+		return EDataValidationResult::Invalid;
+	}
+
+	return EDataValidationResult::Valid;
 }
 
 FString UFlowNode_ComponentObserver::GetStatusString() const

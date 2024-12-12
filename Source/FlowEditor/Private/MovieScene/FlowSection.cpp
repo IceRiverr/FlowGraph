@@ -1,39 +1,46 @@
-#include "FlowSection.h"
+// Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
+#include "MovieScene/FlowSection.h"
 #include "MovieScene/MovieSceneFlowRepeaterSection.h"
 #include "MovieScene/MovieSceneFlowTriggerSection.h"
 
-#include "CommonMovieSceneTools.h"
 #include "Fonts/FontMeasure.h"
 #include "Framework/Application/SlateApplication.h"
-#include "MovieSceneEventUtils.h"
 #include "MovieSceneTrack.h"
 #include "Rendering/DrawElements.h"
+#include "Runtime/Launch/Resources/Version.h"
 #include "Sections/MovieSceneEventSection.h"
 #include "SequencerSectionPainter.h"
 #include "SequencerTimeSliderController.h"
+
+#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION < 4
+#include "CommonMovieSceneTools.h"
+#else
+#include "TimeToPixel.h"
+#endif
 
 #define LOCTEXT_NAMESPACE "FlowSection"
 
 bool FFlowSectionBase::IsSectionSelected() const
 {
-	TSharedPtr<ISequencer> SequencerPtr = Sequencer.Pin();
+	const TSharedPtr<ISequencer> SequencerPtr = Sequencer.Pin();
 
 	TArray<UMovieSceneTrack*> SelectedTracks;
 	SequencerPtr->GetSelectedTracks(SelectedTracks);
 
-	UMovieSceneSection* Section = WeakSection.Get();
+	const UMovieSceneSection* Section = WeakSection.Get();
 	UMovieSceneTrack* Track = Section ? CastChecked<UMovieSceneTrack>(Section->GetOuter()) : nullptr;
 	return Track && SelectedTracks.Contains(Track);
 }
 
 void FFlowSectionBase::PaintEventName(FSequencerSectionPainter& Painter, int32 LayerId, const FString& InEventString, float PixelPos, bool bIsEventValid) const
 {
-	static const float BoxOffsetPx = 10.f;
+	static constexpr float BoxOffsetPx = 10.f;
 	static const TCHAR* WarningString = TEXT("\xf071");
 
-	const FSlateFontInfo FontAwesomeFont = FEditorStyle::Get().GetFontStyle("FontAwesome.10");
+	const FSlateFontInfo FontAwesomeFont = FAppStyle::Get().GetFontStyle("FontAwesome.10");
 	const FSlateFontInfo SmallLayoutFont = FCoreStyle::GetDefaultFontStyle("Bold", 10);
-	const FLinearColor DrawColor = FEditorStyle::GetSlateColor("SelectionColor").GetColor(FWidgetStyle());
+	const FLinearColor DrawColor = FAppStyle::GetSlateColor("SelectionColor").GetColor(FWidgetStyle());
 
 	TSharedRef<FSlateFontMeasure> FontMeasureService = FSlateApplication::Get().GetRenderer()->GetFontMeasureService();
 
@@ -63,8 +70,8 @@ void FFlowSectionBase::PaintEventName(FSequencerSectionPainter& Painter, int32 L
 	FSlateDrawElement::MakeBox(
 		Painter.DrawElements,
 		LayerId + 1,
-		Painter.SectionGeometry.ToPaintGeometry(BoxOffset, BoxSize),
-		FEditorStyle::GetBrush("WhiteBrush"),
+		Painter.SectionGeometry.ToPaintGeometry(BoxSize, FSlateLayoutTransform(1.0f, TransformPoint(1.0f, UE::Slate::CastToVector2f(BoxOffset)))),
+		FAppStyle::GetBrush("WhiteBrush"),
 		ESlateDrawEffect::None,
 		FLinearColor::Black.CopyWithNewOpacity(0.5f)
 	);
@@ -75,18 +82,18 @@ void FFlowSectionBase::PaintEventName(FSequencerSectionPainter& Painter, int32 L
 		FSlateDrawElement::MakeText(
 			Painter.DrawElements,
 			LayerId + 2,
-			Painter.SectionGeometry.ToPaintGeometry(BoxOffset + IconOffset, IconSize),
+			Painter.SectionGeometry.ToPaintGeometry(IconSize, FSlateLayoutTransform(1.0f, TransformPoint(1.0f, UE::Slate::CastToVector2f(BoxOffset + IconOffset)))),
 			WarningString,
 			FontAwesomeFont,
 			Painter.bParentEnabled ? ESlateDrawEffect::None : ESlateDrawEffect::DisabledEffect,
-			FEditorStyle::GetWidgetStyle<FTextBlockStyle>("Log.Warning").ColorAndOpacity.GetSpecifiedColor()
+			FAppStyle::GetWidgetStyle<FTextBlockStyle>("Log.Warning").ColorAndOpacity.GetSpecifiedColor()
 		);
 	}
 
 	FSlateDrawElement::MakeText(
 		Painter.DrawElements,
 		LayerId + 2,
-		Painter.SectionGeometry.ToPaintGeometry(BoxOffset + TextOffset, TextSize),
+		Painter.SectionGeometry.ToPaintGeometry(TextSize, FSlateLayoutTransform(1.0f, TransformPoint(1.0f, UE::Slate::CastToVector2f(BoxOffset + TextOffset)))),
 		InEventString,
 		SmallLayoutFont,
 		Painter.bParentEnabled ? ESlateDrawEffect::None : ESlateDrawEffect::DisabledEffect,
@@ -97,7 +104,7 @@ void FFlowSectionBase::PaintEventName(FSequencerSectionPainter& Painter, int32 L
 int32 FFlowSection::OnPaintSection(FSequencerSectionPainter& Painter) const
 {
 	const int32 LayerId = Painter.PaintSectionBackground();
-	UMovieSceneEventSection* EventSection = Cast<UMovieSceneEventSection>(WeakSection.Get());
+	const UMovieSceneEventSection* EventSection = Cast<UMovieSceneEventSection>(WeakSection.Get());
 	if (!EventSection || !IsSectionSelected())
 	{
 		return LayerId;
@@ -158,7 +165,7 @@ int32 FFlowRepeaterSection::OnPaintSection(FSequencerSectionPainter& Painter) co
 {
 	const int32 LayerId = Painter.PaintSectionBackground();
 
-	UMovieSceneFlowRepeaterSection* EventRepeaterSection = Cast<UMovieSceneFlowRepeaterSection>(WeakSection.Get());
+	const UMovieSceneFlowRepeaterSection* EventRepeaterSection = Cast<UMovieSceneFlowRepeaterSection>(WeakSection.Get());
 	if (!EventRepeaterSection)
 	{
 		return LayerId;

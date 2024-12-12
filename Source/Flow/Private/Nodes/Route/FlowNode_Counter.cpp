@@ -1,4 +1,8 @@
+// Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #include "Nodes/Route/FlowNode_Counter.h"
+
+#include UE_INLINE_GENERATED_CPP_BY_NAME(FlowNode_Counter)
 
 UFlowNode_Counter::UFlowNode_Counter(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -7,7 +11,7 @@ UFlowNode_Counter::UFlowNode_Counter(const FObjectInitializer& ObjectInitializer
 {
 #if WITH_EDITOR
 	Category = TEXT("Route");
-	NodeStyle = EFlowNodeStyle::Condition;
+	NodeDisplayStyle = FlowNodeStyle::Condition;
 #endif
 
 	InputPins.Empty();

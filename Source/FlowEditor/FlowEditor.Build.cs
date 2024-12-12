@@ -1,44 +1,67 @@
+// Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 using UnrealBuildTool;
 
 public class FlowEditor : ModuleRules
 {
-    public FlowEditor(ReadOnlyTargetRules Target) : base(Target)
-    {
-        PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
+	public FlowEditor(ReadOnlyTargetRules target) : base(target)
+	{
+		if (CppStandard is null || CppStandard != CppStandardVersion.Cpp20)
+		{
+			CppStandard = CppStandardVersion.Cpp20;
+		}
 
-        PublicDependencyModuleNames.AddRange(new[]
-        {
-            "Flow"
-        });
+		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-        PrivateDependencyModuleNames.AddRange(new[]
-        {
-            "ApplicationCore",
-            "AssetTools",
-            "BlueprintGraph",
-            "ClassViewer",
-            "ContentBrowser",
-            "Core",
-            "CoreUObject",
-            "DetailCustomizations",
-            "DeveloperSettings",
-            "EditorStyle",
-            "Engine",
-            "GraphEditor",
-            "InputCore",
-            "KismetWidgets",
-            "LevelEditor",
-            "MovieScene",
-            "MovieSceneTracks",
-            "MovieSceneTools",
-            "Projects",
-            "PropertyEditor",
-            "RenderCore",
-            "Sequencer",
-            "Slate",
-            "SlateCore",
-            "ToolMenus",
-            "UnrealEd"
-        });
-    }
+		PublicDependencyModuleNames.AddRange(new[]
+		{
+			"AssetSearch",
+			"EditorSubsystem",
+			"Flow",
+			"MessageLog"
+		});
+
+		PrivateDependencyModuleNames.AddRange(new[]
+		{
+			"AIModule", // For BlueprintNodeHelpers::DescribeProperty (could be copy/pasted out to remove editor-only dependency)
+			"ApplicationCore",
+			"AssetDefinition",
+			"AssetTools",
+			"BlueprintGraph",
+			"ClassViewer",
+			"ContentBrowser",
+			"Core",
+			"CoreUObject",
+			"DetailCustomizations",
+			"DeveloperSettings",
+			"EditorFramework",
+			"EditorScriptingUtilities",
+			"EditorStyle",
+			"Engine",
+			"EngineAssetDefinitions",
+			"GraphEditor",
+			"GameplayTags",
+			"InputCore",
+			"Json",
+			"JsonUtilities",
+			"Kismet",
+			"KismetWidgets",
+			"LevelEditor",
+			"LevelSequence",
+			"MovieScene",
+			"MovieSceneTools",
+			"MovieSceneTracks",
+			"Projects",
+			"PropertyEditor",
+			"PropertyPath",
+			"RenderCore",
+			"Sequencer",
+			"Slate",
+			"SlateCore",
+			"SourceControl",
+			"StructUtils",
+			"ToolMenus",
+			"UnrealEd"
+		});
+	}
 }

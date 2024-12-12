@@ -1,3 +1,5 @@
+// Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #pragma once
 
 #include "GameplayTagContainer.h"
@@ -33,14 +35,12 @@ protected:
 	int32 SuccessLimit;
 
 	// This node will become Completed, if Success Limit > 0 and Success Count reaches this limit
-	UPROPERTY(VisibleAnywhere, Category = "Lifetime")
+	UPROPERTY(VisibleAnywhere, Category = "Lifetime", SaveGame)
 	int32 SuccessCount;
 
 	TMap<TWeakObjectPtr<AActor>, TWeakObjectPtr<UFlowComponent>> RegisteredActors;
 
 protected:
-	virtual void PostLoad() override;
-
 	virtual void ExecuteInput(const FName& PinName) override;
 	virtual void OnLoad_Implementation() override;
 
@@ -70,10 +70,8 @@ protected:
 #if WITH_EDITOR
 public:
 	virtual FString GetNodeDescription() const override;
+	virtual EDataValidationResult ValidateNode() override;
+
 	virtual FString GetStatusString() const override;
 #endif
-
-private:
-	UPROPERTY()
-	FGameplayTag IdentityTag_DEPRECATED;
 };

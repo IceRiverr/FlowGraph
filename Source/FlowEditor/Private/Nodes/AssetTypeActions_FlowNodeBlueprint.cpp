@@ -1,9 +1,12 @@
+// Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #include "Nodes/AssetTypeActions_FlowNodeBlueprint.h"
 #include "Nodes/FlowNodeBlueprintFactory.h"
-#include "FlowEditorModule.h"
-#include "Graph/FlowGraphSettings.h"
-
 #include "Nodes/FlowNodeBlueprint.h"
+#include "Nodes/FlowNode.h"
+#include "Graph/FlowGraphSettings.h"
+#include "FlowEditorModule.h"
+
 
 #define LOCTEXT_NAMESPACE "AssetTypeActions_FlowNodeBlueprint"
 

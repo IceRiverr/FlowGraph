@@ -1,3 +1,5 @@
+// Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #pragma once
 
 #include "SGraphPalette.h"
@@ -5,7 +7,7 @@
 class FFlowAssetEditor;
 
 /** Widget displaying a single item  */
-class SFlowPaletteItem : public SGraphPaletteItem
+class FLOWEDITOR_API SFlowPaletteItem : public SGraphPaletteItem
 {
 public:
 	SLATE_BEGIN_ARGS(SFlowPaletteItem) {}
@@ -19,14 +21,14 @@ private:
 };
 
 /** Flow Palette  */
-class SFlowPalette : public SGraphPalette
+class FLOWEDITOR_API SFlowPalette : public SGraphPalette
 {
 public:
 	SLATE_BEGIN_ARGS(SFlowPalette) {}
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs, TWeakPtr<FFlowAssetEditor> InFlowAssetEditor);
-	virtual ~SFlowPalette();
+	virtual ~SFlowPalette() override;
 
 protected:
 	void Refresh();
@@ -40,13 +42,13 @@ protected:
 	FString GetFilterCategoryName() const;
 	void CategorySelectionChanged(TSharedPtr<FString> NewSelection, ESelectInfo::Type SelectInfo);
 
-	void OnActionSelected(const TArray<TSharedPtr<FEdGraphSchemaAction>>& InActions, ESelectInfo::Type InSelectionType);
+	void OnActionSelected(const TArray<TSharedPtr<FEdGraphSchemaAction>>& InActions, ESelectInfo::Type InSelectionType) const;
 
 public:
 	void ClearGraphActionMenuSelection() const;
 
 protected:
-	TWeakPtr<FFlowAssetEditor> FlowAssetEditorPtr;
+	TWeakPtr<FFlowAssetEditor> FlowAssetEditor;
 	TArray<TSharedPtr<FString>> CategoryNames;
 	TSharedPtr<STextComboBox> CategoryComboBox;
 };

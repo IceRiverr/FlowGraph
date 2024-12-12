@@ -1,8 +1,12 @@
+// Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #include "Graph/Nodes/FlowGraphNode_ExecutionSequence.h"
 #include "Nodes/Route/FlowNode_ExecutionMultiGate.h"
 #include "Nodes/Route/FlowNode_ExecutionSequence.h"
 
 #include "Textures/SlateIcon.h"
+
+#include UE_INLINE_GENERATED_CPP_BY_NAME(FlowGraphNode_ExecutionSequence)
 
 UFlowGraphNode_ExecutionSequence::UFlowGraphNode_ExecutionSequence(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)

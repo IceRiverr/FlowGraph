@@ -1,3 +1,5 @@
+// Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #include "MovieScene/MovieSceneFlowTrack.h"
 #include "MovieScene/MovieSceneFlowRepeaterSection.h"
 #include "MovieScene/MovieSceneFlowTemplate.h"
@@ -5,6 +7,8 @@
 
 #include "Evaluation/MovieSceneEvaluationTrack.h"
 #include "IMovieSceneTracksModule.h"
+
+#include UE_INLINE_GENERATED_CPP_BY_NAME(MovieSceneFlowTrack)
 
 #define LOCTEXT_NAMESPACE "MovieSceneFlowTrack"
 

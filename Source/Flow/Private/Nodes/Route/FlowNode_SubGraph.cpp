@@ -1,26 +1,42 @@
+// Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #include "Nodes/Route/FlowNode_SubGraph.h"
 
 #include "FlowAsset.h"
+#include "FlowSettings.h"
 #include "FlowSubsystem.h"
+#include "Interfaces/FlowNodeWithExternalDataPinSupplierInterface.h"
+
+#include UE_INLINE_GENERATED_CPP_BY_NAME(FlowNode_SubGraph)
+
+#define LOCTEXT_NAMESPACE "FlowNode_SubGraph"
 
 FFlowPin UFlowNode_SubGraph::StartPin(TEXT("Start"));
 FFlowPin UFlowNode_SubGraph::FinishPin(TEXT("Finish"));
 
 UFlowNode_SubGraph::UFlowNode_SubGraph(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
+	, bCanInstanceIdenticalAsset(false)
 {
 #if WITH_EDITOR
 	Category = TEXT("Route");
-	NodeStyle = EFlowNodeStyle::SubGraph;
+	NodeDisplayStyle = FlowNodeStyle::SubGraph;
+
+	AllowedAssignedAssetClasses = {UFlowAsset::StaticClass()};
 #endif
 
 	InputPins = {StartPin};
 	OutputPins = {FinishPin};
 }
 
+bool UFlowNode_SubGraph::CanBeAssetInstanced() const
+{
+	return !Asset.IsNull() && (bCanInstanceIdenticalAsset || Asset.ToString() != GetFlowAsset()->GetTemplateAsset()->GetPathName());
+}
+
 void UFlowNode_SubGraph::PreloadContent()
 {
-	if (!Asset.IsNull() && GetFlowSubsystem())
+	if (CanBeAssetInstanced() && GetFlowSubsystem())
 	{
 		GetFlowSubsystem()->CreateSubFlow(this, FString(), true);
 	}
@@ -28,7 +44,7 @@ void UFlowNode_SubGraph::PreloadContent()
 
 void UFlowNode_SubGraph::FlushContent()
 {
-	if (!Asset.IsNull() && GetFlowSubsystem())
+	if (CanBeAssetInstanced() && GetFlowSubsystem())
 	{
 		GetFlowSubsystem()->RemoveSubFlow(this, EFlowFinishPolicy::Abort);
 	}
@@ -36,30 +52,37 @@ void UFlowNode_SubGraph::FlushContent()
 
 void UFlowNode_SubGraph::ExecuteInput(const FName& PinName)
 {
-	if (Asset.IsNull())
+	if (CanBeAssetInstanced() == false)
 	{
-		LogError(TEXT("Missing Flow Asset"));
-		Finish();
-	}
-	else
-	{
-		if (PinName == TEXT("Start"))
+		if (Asset.IsNull())
 		{
-			if (GetFlowSubsystem())
-			{
-				GetFlowSubsystem()->CreateSubFlow(this);
-			}
+			LogError(TEXT("Missing Flow Asset"));
 		}
 		else
 		{
-			GetFlowAsset()->TriggerCustomEvent(this, PinName);
+			LogError(FString::Printf(TEXT("Asset %s cannot be instance, probably is the same as the asset owning this SubGraph node."), *Asset.ToString()));
 		}
+		
+		Finish();
+		return;
+	}
+	
+	if (PinName == TEXT("Start"))
+	{
+		if (GetFlowSubsystem())
+		{
+			GetFlowSubsystem()->CreateSubFlow(this);
+		}
+	}
+	else if (!PinName.IsNone())
+	{
+		GetFlowAsset()->TriggerCustomInput_FromSubGraph(this, PinName);
 	}
 }
 
 void UFlowNode_SubGraph::Cleanup()
 {
-	if (!Asset.IsNull() && GetFlowSubsystem())
+	if (CanBeAssetInstanced() && GetFlowSubsystem())
 	{
 		GetFlowSubsystem()->RemoveSubFlow(this, EFlowFinishPolicy::Keep);
 	}
@@ -80,52 +103,116 @@ void UFlowNode_SubGraph::OnLoad_Implementation()
 }
 
 #if WITH_EDITOR
+
+FText UFlowNode_SubGraph::GetNodeTitle() const
+{
+	if (UFlowSettings::Get()->bUseAdaptiveNodeTitles && !Asset.IsNull())
+	{
+		return FText::Format(LOCTEXT("SubGraphTitle", "{0}\n{1}"), { Super::GetNodeTitle(), FText::FromString(Asset.ToSoftObjectPath().GetAssetName()) });
+	}
+
+	return Super::GetNodeTitle();
+}
+
 FString UFlowNode_SubGraph::GetNodeDescription() const
 {
-	return Asset.IsNull() ? FString() : Asset.ToSoftObjectPath().GetAssetName();
+	if (!UFlowSettings::Get()->bUseAdaptiveNodeTitles && !Asset.IsNull())
+	{
+		return Asset.ToSoftObjectPath().GetAssetName();
+	}
+
+	return Super::GetNodeDescription();;
 }
 
 UObject* UFlowNode_SubGraph::GetAssetToEdit()
 {
-	return Asset.IsNull() ? nullptr : LoadAsset<UObject>(Asset);
+	return Asset.IsNull() ? nullptr : Asset.LoadSynchronous();
 }
 
-TArray<FName> UFlowNode_SubGraph::GetContextInputs()
+EDataValidationResult UFlowNode_SubGraph::ValidateNode()
 {
-	TArray<FName> EventNames;
+	if (Asset.IsNull())
+	{
+		ValidationLog.Error<UFlowNode>(TEXT("Flow Asset not assigned or invalid!"), this);
+		return EDataValidationResult::Invalid;
+	}
+
+	return EDataValidationResult::Valid;
+}
+
+TArray<FFlowPin> UFlowNode_SubGraph::GetContextInputs() const
+{
+	TArray<FFlowPin> ContextInputPins = Super::GetContextInputs();
 
 	if (!Asset.IsNull())
 	{
-		Asset.LoadSynchronous();
+		(void) Asset.LoadSynchronous();
+
 		for (const FName& PinName : Asset.Get()->GetCustomInputs())
 		{
 			if (!PinName.IsNone())
 			{
-				EventNames.Emplace(PinName);
+				ContextInputPins.AddUnique(FFlowPin(PinName));
 			}
 		}
 	}
 
-	return EventNames;
+	return ContextInputPins;
 }
 
-TArray<FName> UFlowNode_SubGraph::GetContextOutputs()
+TArray<FFlowPin> UFlowNode_SubGraph::GetContextOutputs() const
 {
-	TArray<FName> EventNames;
+	TArray<FFlowPin> ContextOutputPins = Super::GetContextOutputs();
 
 	if (!Asset.IsNull())
 	{
-		Asset.LoadSynchronous();
+		(void) Asset.LoadSynchronous();
+
 		for (const FName& PinName : Asset.Get()->GetCustomOutputs())
 		{
 			if (!PinName.IsNone())
 			{
-				EventNames.Emplace(PinName);
+				ContextOutputPins.AddUnique(FFlowPin(PinName));
 			}
 		}
 	}
 
-	return EventNames;
+	return ContextOutputPins;
+}
+
+void UFlowNode_SubGraph::AutoGenerateDataPins(
+	TMap<FName, FName>& InOutPinNameToBoundPropertyNameMap,
+	TArray<FFlowPin>& InOutInputDataPins,
+	TArray<FFlowPin>& InOutOutputDataPins) const
+{
+	if (Asset.IsNull())
+	{
+		return;
+	}
+
+	(void) Asset.LoadSynchronous();
+
+	for (auto& KV : Asset->Nodes)
+	{
+		UFlowNode* FlowNode = KV.Value;
+
+		if (IFlowNodeWithExternalDataPinSupplierInterface* ExternalPinSuppliedNode = Cast<IFlowNodeWithExternalDataPinSupplierInterface>(FlowNode))
+		{
+			// If subgraph's current flownode uses an external data supplier (that will be this subgraph node),
+			// We need to scrape the external input pins from the node and add them to our auto-generated pins list
+
+			TArray<FFlowPin> ExternalInputPins;
+			if (ExternalPinSuppliedNode->TryAppendExternalInputPins(ExternalInputPins))
+			{
+				for (const FFlowPin& FlowPin : ExternalInputPins)
+				{
+					InOutPinNameToBoundPropertyNameMap.Add(FlowPin.PinName, FlowPin.PinName);
+				}
+
+				InOutInputDataPins.Append(ExternalInputPins);
+			}
+		}
+	}
 }
 
 void UFlowNode_SubGraph::PostLoad()
@@ -159,6 +246,12 @@ void UFlowNode_SubGraph::PostEditChangeProperty(FPropertyChangedEvent& PropertyC
 	}
 }
 
+bool UFlowNode_SubGraph::CanSupplyDataPinValues_Implementation() const
+{
+	// SubGraph node cannot supply data-pin values directly (they are created via AutoGenerateDataPins instead)
+	return false;
+}
+
 void UFlowNode_SubGraph::SubscribeToAssetChanges()
 {
 	if (Asset)
@@ -174,3 +267,5 @@ void UFlowNode_SubGraph::SubscribeToAssetChanges()
 	}
 }
 #endif
+
+#undef LOCTEXT_NAMESPACE

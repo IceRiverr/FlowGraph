@@ -1,13 +1,12 @@
+// Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #include "Nodes/World/FlowNode_OnActorUnregistered.h"
+
+#include UE_INLINE_GENERATED_CPP_BY_NAME(FlowNode_OnActorUnregistered)
 
 UFlowNode_OnActorUnregistered::UFlowNode_OnActorUnregistered(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-}
-
-void UFlowNode_OnActorUnregistered::ExecuteInput(const FName& PinName)
-{
-	Super::ExecuteInput(PinName);
 }
 
 void UFlowNode_OnActorUnregistered::ObserveActor(TWeakObjectPtr<AActor> Actor, TWeakObjectPtr<UFlowComponent> Component)

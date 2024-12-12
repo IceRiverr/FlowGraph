@@ -1,7 +1,11 @@
-﻿#include "Nodes/Utils/FlowNode_Checkpoint.h"
+﻿// Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
+#include "Nodes/Utils/FlowNode_Checkpoint.h"
 #include "FlowSubsystem.h"
 
 #include "Kismet/GameplayStatics.h"
+
+#include UE_INLINE_GENERATED_CPP_BY_NAME(FlowNode_Checkpoint)
 
 UFlowNode_Checkpoint::UFlowNode_Checkpoint(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)

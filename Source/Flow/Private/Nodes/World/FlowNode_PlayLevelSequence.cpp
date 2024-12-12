@@ -1,33 +1,49 @@
+// Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #include "Nodes/World/FlowNode_PlayLevelSequence.h"
 
-#include "FlowModule.h"
+#include "FlowAsset.h"
+#include "FlowLogChannels.h"
 #include "FlowSubsystem.h"
 #include "LevelSequence/FlowLevelSequencePlayer.h"
+
+#if WITH_EDITOR
 #include "MovieScene/MovieSceneFlowTrack.h"
 #include "MovieScene/MovieSceneFlowTriggerSection.h"
+#endif
 
 #include "LevelSequence.h"
 #include "LevelSequenceActor.h"
 #include "VisualLogger/VisualLogger.h"
+
+#include UE_INLINE_GENERATED_CPP_BY_NAME(FlowNode_PlayLevelSequence)
 
 FFlowNodeLevelSequenceEvent UFlowNode_PlayLevelSequence::OnPlaybackStarted;
 FFlowNodeLevelSequenceEvent UFlowNode_PlayLevelSequence::OnPlaybackCompleted;
 
 UFlowNode_PlayLevelSequence::UFlowNode_PlayLevelSequence(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
+	, bPlayReverse(false)
+	, bUseGraphOwnerAsTransformOrigin(false)
+	, bReplicates(false)
+	, bAlwaysRelevant(false)
+	, bApplyOwnerTimeDilation(true)
 	, LoadedSequence(nullptr)
 	, SequencePlayer(nullptr)
+	, CachedPlayRate(0)
 	, StartTime(0.0f)
 	, ElapsedTime(0.0f)
 	, TimeDilation(1.0f)
 {
 #if WITH_EDITOR
 	Category = TEXT("World");
-	NodeStyle = EFlowNodeStyle::Latent;
+	NodeDisplayStyle = FlowNodeStyle::Latent;
 #endif
 
 	InputPins.Empty();
 	InputPins.Add(FFlowPin(TEXT("Start")));
+	InputPins.Add(FFlowPin(TEXT("Pause")));
+	InputPins.Add(FFlowPin(TEXT("Resume")));
 	InputPins.Add(FFlowPin(TEXT("Stop")));
 
 	OutputPins.Add(FFlowPin(TEXT("PreStart")));
@@ -37,19 +53,19 @@ UFlowNode_PlayLevelSequence::UFlowNode_PlayLevelSequence(const FObjectInitialize
 }
 
 #if WITH_EDITOR
-TArray<FName> UFlowNode_PlayLevelSequence::GetContextOutputs()
+TArray<FFlowPin> UFlowNode_PlayLevelSequence::GetContextOutputs() const
 {
 	if (Sequence.IsNull())
 	{
-		return TArray<FName>();
+		return TArray<FFlowPin>();
 	}
 
-	TArray<FName> PinNames = {};
+	TArray<FFlowPin> Pins = {};
 
-	Sequence = Sequence.LoadSynchronous();
+	Sequence.LoadSynchronous();
 	if (Sequence && Sequence->GetMovieScene())
 	{
-		for (const UMovieSceneTrack* Track : Sequence->GetMovieScene()->GetMasterTracks())
+		for (const UMovieSceneTrack* Track : Sequence->GetMovieScene()->GetTracks())
 		{
 			if (Track->GetClass() == UMovieSceneFlowTrack::StaticClass())
 			{
@@ -59,9 +75,9 @@ TArray<FName> UFlowNode_PlayLevelSequence::GetContextOutputs()
 					{
 						for (const FString& EventName : FlowSection->GetAllEntryPoints())
 						{
-							if (!EventName.IsEmpty())
+							if (!EventName.IsEmpty() && !Pins.Contains(EventName))
 							{
-								PinNames.Emplace(EventName);
+								Pins.Emplace(EventName);
 							}
 						}
 					}
@@ -70,7 +86,7 @@ TArray<FName> UFlowNode_PlayLevelSequence::GetContextOutputs()
 		}
 	}
 
-	return PinNames;
+	return Pins;
 }
 
 void UFlowNode_PlayLevelSequence::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
@@ -108,14 +124,39 @@ void UFlowNode_PlayLevelSequence::FlushContent()
 	}
 }
 
+void UFlowNode_PlayLevelSequence::InitializeInstance()
+{
+	Super::InitializeInstance();
+
+	// Cache Play Rate set by user
+	CachedPlayRate = PlaybackSettings.PlayRate;
+}
+
 void UFlowNode_PlayLevelSequence::CreatePlayer()
 {
-	LoadedSequence = LoadAsset<ULevelSequence>(Sequence);
+	LoadedSequence = Sequence.LoadSynchronous();
 	if (LoadedSequence)
 	{
 		ALevelSequenceActor* SequenceActor;
-		SequencePlayer = UFlowLevelSequencePlayer::CreateFlowLevelSequencePlayer(this, LoadedSequence, PlaybackSettings, SequenceActor);
-		SequencePlayer->SetFlowEventReceiver(this);
+
+		AActor* OwningActor = TryGetRootFlowActorOwner();
+
+		// Apply AActor::CustomTimeDilation from owner of the Root Flow
+		if (IsValid(OwningActor))
+		{
+			PlaybackSettings.PlayRate = CachedPlayRate * OwningActor->CustomTimeDilation;
+		}
+
+		// Apply Transform Origin
+		AActor* TransformOriginActor = bUseGraphOwnerAsTransformOrigin ? OwningActor : nullptr;
+
+		// Finally create the player
+		SequencePlayer = UFlowLevelSequencePlayer::CreateFlowLevelSequencePlayer(this, LoadedSequence, PlaybackSettings, CameraSettings, TransformOriginActor, bReplicates, bAlwaysRelevant, SequenceActor);
+
+		if (SequencePlayer)
+		{
+			SequencePlayer->SetFlowEventReceiver(this);
+		}
 
 		const FFrameRate FrameRate = LoadedSequence->GetMovieScene()->GetTickResolution();
 		const FFrameNumber PlaybackStartFrame = LoadedSequence->GetMovieScene()->GetPlaybackRange().GetLowerBoundValue();
@@ -127,18 +168,29 @@ void UFlowNode_PlayLevelSequence::ExecuteInput(const FName& PinName)
 {
 	if (PinName == TEXT("Start"))
 	{
-		LoadedSequence = LoadAsset<ULevelSequence>(Sequence);
+		LoadedSequence = Sequence.LoadSynchronous();
 
 		if (GetFlowSubsystem()->GetWorld() && LoadedSequence)
 		{
 			CreatePlayer();
 
-			TriggerOutput(TEXT("PreStart"));
+			if (SequencePlayer)
+			{
+				TriggerOutput(TEXT("PreStart"));
 
-			SequencePlayer->OnFinished.AddDynamic(this, &UFlowNode_PlayLevelSequence::OnPlaybackFinished);
-			SequencePlayer->Play();
+				SequencePlayer->OnFinished.AddDynamic(this, &UFlowNode_PlayLevelSequence::OnPlaybackFinished);
 
-			TriggerOutput(TEXT("Started"));
+				if (bPlayReverse)
+				{
+					SequencePlayer->PlayReverse();
+				}
+				else
+				{
+					SequencePlayer->Play();
+				}
+
+				TriggerOutput(TEXT("Started"));
+			}
 		}
 
 		TriggerFirstOutput(false);
@@ -146,6 +198,14 @@ void UFlowNode_PlayLevelSequence::ExecuteInput(const FName& PinName)
 	else if (PinName == TEXT("Stop"))
 	{
 		StopPlayback();
+	}
+	else if (PinName == TEXT("Pause"))
+	{
+		SequencePlayer->Pause();
+	}
+	else if (PinName == TEXT("Resume") && SequencePlayer->IsPaused())
+	{
+		SequencePlayer->Play();
 	}
 }
 
@@ -161,16 +221,29 @@ void UFlowNode_PlayLevelSequence::OnLoad_Implementation()
 {
 	if (ElapsedTime != 0.0f)
 	{
-		LoadedSequence = LoadAsset<ULevelSequence>(Sequence);
-
+		LoadedSequence = Sequence.LoadSynchronous();
 		if (GetFlowSubsystem()->GetWorld() && LoadedSequence)
 		{
 			CreatePlayer();
-			SequencePlayer->OnFinished.AddDynamic(this, &UFlowNode_PlayLevelSequence::OnPlaybackFinished);
 
-			SequencePlayer->SetPlayRate(TimeDilation);
-			SequencePlayer->SetPlaybackPosition(FMovieSceneSequencePlaybackParams(ElapsedTime, EUpdatePositionMethod::Jump));
-			SequencePlayer->Play();
+			if (SequencePlayer)
+			{
+				SequencePlayer->OnFinished.AddDynamic(this, &UFlowNode_PlayLevelSequence::OnPlaybackFinished);
+
+				SequencePlayer->SetPlaybackPosition(FMovieSceneSequencePlaybackParams(ElapsedTime, EUpdatePositionMethod::Jump));
+
+				// Take into account Play Rate set in the Playback Settings
+				SequencePlayer->SetPlayRate(TimeDilation * CachedPlayRate);
+
+				if (bPlayReverse)
+				{
+					SequencePlayer->PlayReverse();
+				}
+				else
+				{
+					SequencePlayer->Play();
+				}
+			}
 		}
 	}
 }
@@ -185,7 +258,9 @@ void UFlowNode_PlayLevelSequence::OnTimeDilationUpdate(const float NewTimeDilati
 	if (SequencePlayer)
 	{
 		TimeDilation = NewTimeDilation;
-		SequencePlayer->SetPlayRate(NewTimeDilation);
+
+		// Take into account Play Rate set in the Playback Settings
+		SequencePlayer->SetPlayRate(NewTimeDilation * CachedPlayRate);
 	}
 }
 
@@ -210,7 +285,10 @@ void UFlowNode_PlayLevelSequence::Cleanup()
 	{
 		SequencePlayer->SetFlowEventReceiver(nullptr);
 		SequencePlayer->OnFinished.RemoveAll(this);
-		SequencePlayer->Stop();
+		if (!PlaybackSettings.bPauseAtEnd)
+		{
+			SequencePlayer->Stop();
+		}
 		SequencePlayer = nullptr;
 	}
 
@@ -228,7 +306,7 @@ FString UFlowNode_PlayLevelSequence::GetPlaybackProgress() const
 {
 	if (SequencePlayer && SequencePlayer->IsPlaying())
 	{
-		return GetProgressAsString(SequencePlayer->GetCurrentTime().AsSeconds() - StartTime).Append(TEXT(" / ")).Append(GetProgressAsString(SequencePlayer->GetDuration().AsSeconds()));
+		return FString::Printf(TEXT("%.*f / %.*f"), 2, SequencePlayer->GetCurrentTime().AsSeconds() - StartTime, 2, SequencePlayer->GetDuration().AsSeconds());
 	}
 
 	return FString();
@@ -240,6 +318,17 @@ FString UFlowNode_PlayLevelSequence::GetNodeDescription() const
 	return Sequence.IsNull() ? TEXT("[No sequence]") : Sequence.GetAssetName();
 }
 
+EDataValidationResult UFlowNode_PlayLevelSequence::ValidateNode()
+{
+	if (Sequence.IsNull())
+	{
+		ValidationLog.Error<UFlowNode>(TEXT("Level Sequence asset not assigned or invalid!"), this);
+		return EDataValidationResult::Invalid;
+	}
+
+	return EDataValidationResult::Valid;
+}
+
 FString UFlowNode_PlayLevelSequence::GetStatusString() const
 {
 	return GetPlaybackProgress();
@@ -247,7 +336,7 @@ FString UFlowNode_PlayLevelSequence::GetStatusString() const
 
 UObject* UFlowNode_PlayLevelSequence::GetAssetToEdit()
 {
-	return Sequence.IsNull() ? nullptr : LoadAsset<UObject>(Sequence);
+	return Sequence.IsNull() ? nullptr : Sequence.LoadSynchronous();
 }
 #endif
 

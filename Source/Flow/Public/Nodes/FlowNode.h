@@ -1,52 +1,56 @@
+// Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #pragma once
 
-#include "CoreMinimal.h"
 #include "EdGraph/EdGraphNode.h"
-#include "Engine/StreamableManager.h"
 #include "GameplayTagContainer.h"
+#include "UObject/TextProperty.h"
 #include "VisualLogger/VisualLoggerDebugSnapshotInterface.h"
 
+#include "FlowNodeBase.h"
 #include "FlowTypes.h"
+#include "Interfaces/FlowDataPinValueSupplierInterface.h"
 #include "Nodes/FlowPin.h"
+#include "Types/FlowDataPinProperties.h"
+
 #include "FlowNode.generated.h"
-
-class UFlowAsset;
-class UFlowSubsystem;
-
-#if WITH_EDITOR
-DECLARE_DELEGATE(FFlowNodeEvent);
-#endif
 
 /**
  * A Flow Node is UObject-based node designed to handle entire gameplay feature within single node.
  */
 UCLASS(Abstract, Blueprintable, HideCategories = Object)
-class FLOW_API UFlowNode : public UObject, public IVisualLoggerDebugSnapshotInterface
+class FLOW_API UFlowNode 
+	: public UFlowNodeBase
+	, public IFlowDataPinValueSupplierInterface
+	, public IVisualLoggerDebugSnapshotInterface
 {
 	GENERATED_UCLASS_BODY()
 
 	friend class SFlowGraphNode;
 	friend class UFlowAsset;
 	friend class UFlowGraphNode;
+	friend class UFlowNodeAddOn;
+	friend class SFlowInputPinHandle;
+	friend class SFlowOutputPinHandle;
 
 //////////////////////////////////////////////////////////////////////////
 // Node
 
-private:
-	UPROPERTY()
-	UEdGraphNode* GraphNode;
-
 #if WITH_EDITORONLY_DATA
+
 protected:
 	UPROPERTY()
-	FString Category;
+	TArray<TSubclassOf<UFlowAsset>> AllowedAssetClasses;
 
-	UPROPERTY(EditDefaultsOnly, Category = "FlowNode")
-	EFlowNodeStyle NodeStyle;
+	UPROPERTY()
+	TArray<TSubclassOf<UFlowAsset>> DeniedAssetClasses;
+#endif
 
 public:
-	FFlowNodeEvent OnReconstructionRequested;
-#endif
+	// UFlowNodeBase
+	virtual UFlowNode* GetFlowNodeSelfOrOwner() override { return this; }
+	virtual bool IsSupportedInputPinName(const FName& PinName) const override;
+	// --
 
 public:
 #if WITH_EDITOR
@@ -55,43 +59,32 @@ public:
 	virtual void PostLoad() override;
 	// --
 
-	// Opportunity to update node's data before UFlowGraphNode would call ReconstructNode()
-	virtual void FixNode(UEdGraphNode* NewGraph);
+	virtual EDataValidationResult ValidateNode() { return EDataValidationResult::NotValidated; }
+
 #endif
-
-	UEdGraphNode* GetGraphNode() const { return GraphNode; }
-
-#if WITH_EDITOR
-	void SetGraphNode(UEdGraphNode* NewGraph);
-
-	virtual FString GetNodeCategory() const;
-	virtual FText GetNodeTitle() const;
-	virtual FText GetNodeToolTip() const;
-	
-	// This method allows to have different for every node instance, i.e. Red if node represents enemy, Green if node represents a friend
-	virtual bool GetNodeTitleColor(FLinearColor& OutColor) const { return false; }
-
-	EFlowNodeStyle GetNodeStyle() const { return NodeStyle; }
-
-	// Short summary of node's content - displayed over node as NodeInfoPopup
-	virtual FString GetNodeDescription() const;
-#endif
-
-protected:
-	// Short summary of node's content - displayed over node as NodeInfoPopup
-	UFUNCTION(BlueprintImplementableEvent, Category = "FlowNode", meta = (DisplayName = "GetNodeDescription"))
-	FString K2_GetNodeDescription() const;
 
 	// Inherits Guid after graph node
 	UPROPERTY()
 	FGuid NodeGuid;
 
 public:
-	void SetGuid(const FGuid NewGuid) { NodeGuid = NewGuid; }
-	FGuid GetGuid() const { return NodeGuid; }
+	UFUNCTION(BlueprintCallable, Category = "FlowNode")
+	void SetGuid(const FGuid& NewGuid) { NodeGuid = NewGuid; }
 
 	UFUNCTION(BlueprintPure, Category = "FlowNode")
-	UFlowAsset* GetFlowAsset() const;
+	const FGuid& GetGuid() const { return NodeGuid; }
+
+public:	
+	virtual bool CanFinishGraph() const { return false; }
+
+protected:
+	UPROPERTY(EditDefaultsOnly, Category = "FlowNode")
+	TArray<EFlowSignalMode> AllowedSignalModes;
+
+	// If enabled, signal will pass through node without calling ExecuteInput()
+	// Designed to handle patching
+	UPROPERTY()
+	EFlowSignalMode SignalMode;
 
 //////////////////////////////////////////////////////////////////////////
 // All created pins (default, class-specific and added by user)
@@ -109,15 +102,26 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "FlowNode")
 	TArray<FFlowPin> OutputPins;
 
-	void AddInputPins(TArray<FName> PinNames);
-	void AddOutputPins(TArray<FName> PinNames);
+	void AddInputPins(const TArray<FFlowPin>& Pins);
+	void AddOutputPins(const TArray<FFlowPin>& Pins);
+
+#if WITH_EDITOR
+	// Utility function to rebuild a pin array in editor (either InputPins or OutputPins, passed as InOutPins)
+	// returns true if the InOutPins array was rebuilt
+	bool RebuildPinArray(const TArray<FName>& NewPinNames, TArray<FFlowPin>& InOutPins, const FFlowPin& DefaultPin);
+	bool RebuildPinArray(const TArray<FFlowPin>& NewPins, TArray<FFlowPin>& InOutPins, const FFlowPin& DefaultPin);
+#endif // WITH_EDITOR;
 
 	// always use default range for nodes with user-created outputs i.e. Execution Sequence
 	void SetNumberedInputPins(const uint8 FirstNumber = 0, const uint8 LastNumber = 1);
 	void SetNumberedOutputPins(const uint8 FirstNumber = 0, const uint8 LastNumber = 1);
 
-	TArray<FFlowPin> GetInputPins() const { return InputPins; }
-	TArray<FFlowPin> GetOutputPins() const { return OutputPins; }
+	uint8 CountNumberedInputs() const;
+	uint8 CountNumberedOutputs() const;
+
+public:
+	const TArray<FFlowPin>& GetInputPins() const { return InputPins; }
+	const TArray<FFlowPin>& GetOutputPins() const { return OutputPins; }
 
 	UFUNCTION(BlueprintPure, Category = "FlowNode")
 	TArray<FName> GetInputNames() const;
@@ -125,50 +129,171 @@ protected:
 	UFUNCTION(BlueprintPure, Category = "FlowNode")
 	TArray<FName> GetOutputNames() const;
 
-public:
 #if WITH_EDITOR
-	virtual bool SupportsContextPins() const { return false; }
-
-	// Be careful, enabling it might cause loading gigabytes of data as nodes would load all related data (i.e. Level Sequences)
-	virtual bool CanRefreshContextPinsOnLoad() const { return false; }
-
-	virtual TArray<FName> GetContextInputs() { return TArray<FName>(); }
-	virtual TArray<FName> GetContextOutputs() { return TArray<FName>(); }
+	// IFlowContextPinSupplierInterface
+	virtual bool SupportsContextPins() const override;
+	virtual TArray<FFlowPin> GetContextInputs() const override;
+	virtual TArray<FFlowPin> GetContextOutputs() const override;
+	// --
 
 	virtual bool CanUserAddInput() const;
 	virtual bool CanUserAddOutput() const;
 
-	void RemoveUserInput();
-	void RemoveUserOutput();
+	void RemoveUserInput(const FName& PinName);
+	void RemoveUserOutput(const FName& PinName);
+
+	// Functions to determine acceptance for 'wildcard' data pin types (eg., singular, array, set, map)
+	// TODO (gtaylor) The data pins feature is under construction
+	bool DoesInputWildcardPinAcceptArray(const UEdGraphPin* Pin) const { return true; }
+	bool DoesOutputWildcardPinAcceptContainer(const UEdGraphPin* Pin) const { return true; }
 #endif
 
 protected:
-	UFUNCTION(BlueprintImplementableEvent, Category = "FlowNode", meta = (DisplayName = "CanUserAddInput"))
+	UFUNCTION(BlueprintImplementableEvent, Category = "FlowNode", meta = (DisplayName = "Can User Add Input"))
 	bool K2_CanUserAddInput() const;
 
-	UFUNCTION(BlueprintImplementableEvent, Category = "FlowNode", meta = (DisplayName = "CanUserAddOutput"))
+	UFUNCTION(BlueprintImplementableEvent, Category = "FlowNode", meta = (DisplayName = "Can User Add Output"))
 	bool K2_CanUserAddOutput() const;
 
 //////////////////////////////////////////////////////////////////////////
 // Connections to other nodes
 
-private:
-	// Map outputs to the connected node and input pin
+protected:
+	// Map input/outputs to the connected node and input pin
 	UPROPERTY()
 	TMap<FName, FConnectedPin> Connections;
 
 public:
-	void SetConnections(TMap<FName, FConnectedPin>& InConnections) { Connections = InConnections; }
+	void SetConnections(const TMap<FName, FConnectedPin>& InConnections) { Connections = InConnections; }
 	FConnectedPin GetConnection(const FName OutputName) const { return Connections.FindRef(OutputName); }
-	TSet<UFlowNode*> GetConnectedNodes() const;
 
 	UFUNCTION(BlueprintPure, Category= "FlowNode")
-	bool IsOutputConnected(const FName& PinName) const;
+	TSet<UFlowNode*> GatherConnectedNodes() const;
+	
+	FName GetPinConnectedToNode(const FGuid& OtherNodeGuid);
+
+	UFUNCTION(BlueprintPure, Category= "FlowNode")
+	bool IsInputConnected(const FName& PinName, bool bErrorIfPinNotFound = true) const;
+
+	UFUNCTION(BlueprintPure, Category= "FlowNode")
+	bool IsOutputConnected(const FName& PinName, bool bErrorIfPinNotFound = true) const;
+
+	bool IsInputConnected(const FFlowPin& FlowPin) const;
+	bool IsOutputConnected(const FFlowPin& FlowPin) const;
+
+	FFlowPin* FindInputPinByName(const FName& PinName);
+	FFlowPin* FindOutputPinByName(const FName& PinName);
 
 	static void RecursiveFindNodesByClass(UFlowNode* Node, const TSubclassOf<UFlowNode> Class, uint8 Depth, TArray<UFlowNode*>& OutNodes);
 
+protected:
+
+	// Slow and fast lookup functions, based on whether we are proactively caching the connections for quick lookup 
+	// in the Connections array (by PinCategory)
+	bool FindConnectedNodeForPinFast(const FName& FlowPinName, FGuid* FoundGuid = nullptr, FName* OutConnectedPinName = nullptr) const;
+	bool FindConnectedNodeForPinSlow(const FName& FlowPinName, FGuid* FoundGuid = nullptr, FName* OutConnectedPinName = nullptr) const;
+
+//////////////////////////////////////////////////////////////////////////
+// Data Pins
+
+public:
+
+	// Map of DataPin Name to its Bound Property, 
+	// when using metadata tag 'BindOutputFlowDataPin' to bind properties to data pins for automatic supplier support
+	UPROPERTY(VisibleDefaultsOnly, AdvancedDisplay, Category = "FlowNode", meta = (GetByRef))
+	TMap<FName, FName> PinNameToBoundPropertyNameMap;
+
+	const TMap<FName, FName>& GetPinNameToBoundPropertyNameMap() const { return PinNameToBoundPropertyNameMap; }
+
+#if WITH_EDITORONLY_DATA	
+	UPROPERTY(VisibleDefaultsOnly, AdvancedDisplay, Category = "FlowNode", meta = (GetByRef))
+	TArray<FFlowPin> AutoInputDataPins;
+
+	UPROPERTY(VisibleDefaultsOnly, AdvancedDisplay, Category = "FlowNode", meta = (GetByRef))
+	TArray<FFlowPin> AutoOutputDataPins;
+#endif // WITH_EDITORONLY_DATA	
+
+#if WITH_EDITOR
+	void SetPinNameToBoundPropertyNameMap(const TMap<FName, FName>& Map);
+	TMap<FName, FName>& GetMutablePinNameToBoundPropertyNameMap() { return PinNameToBoundPropertyNameMap; }
+
+	void SetAutoInputDataPins(const TArray<FFlowPin>& AutoInputPins);
+	void SetAutoOutputDataPins(const TArray<FFlowPin>& AutoOutputPins);
+	const TArray<FFlowPin>& GetAutoInputDataPins() const { return AutoInputDataPins; }
+	const TArray<FFlowPin>& GetAutoOutputDataPins() const { return AutoOutputDataPins; }
+	
+	TArray<FFlowPin>& GetMutableAutoInputDataPins() { return AutoInputDataPins; }
+	TArray<FFlowPin>& GetMutableAutoOutputDataPins() { return AutoOutputDataPins; }
+#endif // WITH_EDITOR
+
+	// IFlowDataPinValueSupplierInterface
+	virtual bool CanSupplyDataPinValues_Implementation() const override;
+	virtual FFlowDataPinResult_Bool TrySupplyDataPinAsBool_Implementation(const FName& PinName) const override;
+	virtual FFlowDataPinResult_Int TrySupplyDataPinAsInt_Implementation(const FName& PinName) const override;
+	virtual FFlowDataPinResult_Float TrySupplyDataPinAsFloat_Implementation(const FName& PinName) const override;
+	virtual FFlowDataPinResult_Name TrySupplyDataPinAsName_Implementation(const FName& PinName) const override;
+	virtual FFlowDataPinResult_String TrySupplyDataPinAsString_Implementation(const FName& PinName) const override;
+	virtual FFlowDataPinResult_Text TrySupplyDataPinAsText_Implementation(const FName& PinName) const override;
+	virtual FFlowDataPinResult_Enum TrySupplyDataPinAsEnum_Implementation(const FName& PinName) const override;
+	virtual FFlowDataPinResult_Vector TrySupplyDataPinAsVector_Implementation(const FName& PinName) const override;
+	virtual FFlowDataPinResult_Rotator TrySupplyDataPinAsRotator_Implementation(const FName& PinName) const override;
+	virtual FFlowDataPinResult_Transform TrySupplyDataPinAsTransform_Implementation(const FName& PinName) const override;
+	virtual FFlowDataPinResult_GameplayTag TrySupplyDataPinAsGameplayTag_Implementation(const FName& PinName) const override;
+	virtual FFlowDataPinResult_GameplayTagContainer TrySupplyDataPinAsGameplayTagContainer_Implementation(const FName& PinName) const override;
+	virtual FFlowDataPinResult_InstancedStruct TrySupplyDataPinAsInstancedStruct_Implementation(const FName& PinName) const override;
+	virtual FFlowDataPinResult_Object TrySupplyDataPinAsObject_Implementation(const FName& PinName) const override;
+	virtual FFlowDataPinResult_Class TrySupplyDataPinAsClass_Implementation(const FName& PinName) const override;
+
+	bool TryGetFlowDataPinSupplierDatasForPinName(
+		const FName& PinName,
+		TArray<FFlowPinValueSupplierData>& InOutPinValueSupplierDatas) const;
+	// --
+
+protected:
+
+	// Helper functions for the TrySupplyDataPin...() functions
+	bool TryFindPropertyByPinName(
+		const FName& PinName,
+		const FProperty*& OutFoundProperty,
+		TInstancedStruct<FFlowDataPinProperty>& OutFoundInstancedStruct,
+		EFlowDataPinResolveResult& InOutResult) const;
+	virtual bool TryFindPropertyByRemappedPinName(
+		const FName& RemappedPinName,
+		const FProperty*& OutFoundProperty,
+		TInstancedStruct<FFlowDataPinProperty>& OutFoundInstancedStruct,
+		EFlowDataPinResolveResult& InOutResult) const;
+
+	// Functions to supply the pin data value from a variety of supported property types
+	template <typename TFlowDataPinResultType, typename TFlowDataPinProperty, typename TFieldPropertyType>
+	TFlowDataPinResultType TrySupplyDataPinAsType(const FName& PinName) const;
+
+	template <typename TFlowDataPinResultType, typename TFlowLargeDataPinProperty, typename TFlowMediumDataPinProperty>
+	TFlowDataPinResultType TrySupplyDataPinAsNumericType(const FName& PinName) const;
+
+	template <typename TFlowDataPinResultType>
+	TFlowDataPinResultType TrySupplyDataPinAsAnyTextType(const FName& PinName) const;
+
+	FORCEINLINE_DEBUGGABLE FFlowDataPinResult_Enum TrySupplyDataPinAsEnumType(const FName& PinName) const;
+
+	template <typename TFlowDataPinResultType, typename TFlowDataPinProperty, typename TTargetStruct>
+	TFlowDataPinResultType TrySupplyDataPinAsStructType(const FName& PinName) const;
+
+	template <typename TFlowDataPinResultType, typename TFlowDataPinProperty, typename TUObjectType,
+		typename TFieldPropertyObjectType0, typename TFieldPropertySoftObjectType1>
+	TFlowDataPinResultType TrySupplyDataPinAsUObjectTypeCommon(const FName& PinName, const FProperty*& OutFoundProperty) const;
+
+	template <typename TFlowDataPinResultType, typename TFlowDataPinProperty, typename TUObjectType,
+		typename TFieldPropertyObjectType0, typename TFieldPropertySoftObjectType1,
+		typename TFieldPropertyWeakType2, typename TFieldPropertyLazyType3>
+	TFlowDataPinResultType TrySupplyDataPinAsUObjectType(const FName& PinName) const;
+
+	template <typename TFlowDataPinResultType, typename TFlowDataPinProperty, typename TUObjectType,
+		typename TFieldPropertyObjectType0, typename TFieldPropertySoftObjectType1>
+	TFlowDataPinResultType TrySupplyDataPinAsUClassType(const FName& PinName) const;
+
 //////////////////////////////////////////////////////////////////////////
 // Debugger
+
 protected:
 	static FString MissingIdentityTag;
 	static FString MissingNotifyTag;
@@ -182,104 +307,72 @@ public:
 	bool bPreloaded;
 
 protected:
-	FStreamableManager StreamableManager;
-
 	UPROPERTY(SaveGame)
 	EFlowNodeState ActivationState;
-	
+
+public:
+	EFlowNodeState GetActivationState() const { return ActivationState; }
+
 #if !UE_BUILD_SHIPPING
+
 private:
 	TMap<FName, TArray<FPinRecord>> InputRecords;
 	TMap<FName, TArray<FPinRecord>> OutputRecords;
 #endif
 
 public:
-	UFUNCTION(BlueprintPure, Category = "FlowNode")
-	UFlowSubsystem* GetFlowSubsystem() const;
-
-	virtual UWorld* GetWorld() const override;
-
-protected:
-	// Method called just after creating the node instance, while initializing the Flow Asset instance
-	// This happens before executing graph, only called during gameplay
-	virtual void InitializeInstance();
-
-	// Event called just after creating the node instance, while initializing the Flow Asset instance
-	// This happens before executing graph, only called during gameplay
-	UFUNCTION(BlueprintImplementableEvent, Category = "FlowNode", meta = (DisplayName = "InitInstance"))
-	void K2_InitializeInstance();
-
-public:
 	void TriggerPreload();
 	void TriggerFlush();
 
 protected:
-	virtual void PreloadContent();
-	virtual void FlushContent();
-
-	UFUNCTION(BlueprintImplementableEvent, Category = "FlowNode", meta = (DisplayName = "PreloadContent"))
-	void K2_PreloadContent();
-
-	UFUNCTION(BlueprintImplementableEvent, Category = "FlowNode", meta = (DisplayName = "FlushContent"))
-	void K2_FlushContent();
 
 	// Trigger execution of input pin
-	void TriggerInput(const FName& PinName);
-
-	// Method reacting on triggering Input pin
-	virtual void ExecuteInput(const FName& PinName);
-
-	// Event reacting on triggering Input pin
-	UFUNCTION(BlueprintImplementableEvent, Category = "FlowNode", meta = (DisplayName = "ExecuteInput"))
-	void K2_ExecuteInput(const FName& PinName);
-
-	// Simply trigger the first Output Pin, convenient to use if node has only one output
-	UFUNCTION(BlueprintCallable, Category = "FlowNode")
-	void TriggerFirstOutput(const bool bFinish);
-
-	// Trigger Output Pin
-	UFUNCTION(BlueprintCallable, Category = "FlowNode")
-	void TriggerOutput(const FName& PinName, const bool bFinish = false);
-
-	void TriggerOutput(const FString& PinName, const bool bFinish = false);
-	void TriggerOutput(const FText& PinName, const bool bFinish = false);
-	void TriggerOutput(const TCHAR* PinName, const bool bFinish = false);
-
-	// Finish execution of node, it will call Cleanup
-	UFUNCTION(BlueprintCallable, Category = "FlowNode")
-	void Finish();
-
-	void Deactivate();
-
-	// Method called after node finished the work
-	virtual void Cleanup();
-
-	// Event called after node finished the work
-	UFUNCTION(BlueprintImplementableEvent, Category = "FlowNode", meta = (DisplayName = "Cleanup"))
-	void K2_Cleanup();
-
-public:
-	// Define what happens when node is terminated from the outside
-	virtual void ForceFinishNode();
+	void TriggerInput(const FName& PinName, const EFlowPinActivationType ActivationType = EFlowPinActivationType::Default);
 
 protected:
-	// Define what happens when node is terminated from the outside
-	UFUNCTION(BlueprintImplementableEvent, Category = "FlowNode", meta = (DisplayName = "ForceFinishNode"))
-	void K2_ForceFinishNode();
+	void Deactivate();
+
+	virtual void TriggerFirstOutput(const bool bFinish) override;
+	virtual void TriggerOutput(FName PinName, const bool bFinish = false, const EFlowPinActivationType ActivationType = EFlowPinActivationType::Default) override;
+public:
+	virtual void Finish() override;
 
 private:
 	void ResetRecords();
 
+//////////////////////////////////////////////////////////////////////////
+// SaveGame support
+
+public:
+	UFUNCTION(BlueprintCallable, Category = "FlowNode")
+	void SaveInstance(FFlowNodeSaveData& NodeRecord);
+
+	UFUNCTION(BlueprintCallable, Category = "FlowNode")
+	void LoadInstance(const FFlowNodeSaveData& NodeRecord);
+
+protected:
+	UFUNCTION(BlueprintNativeEvent, Category = "FlowNode")
+	void OnSave();
+
+	UFUNCTION(BlueprintNativeEvent, Category = "FlowNode")
+	void OnLoad();
+
+	UFUNCTION(BlueprintNativeEvent, Category = "FlowNode")
+	void OnPassThrough();
+	
+//////////////////////////////////////////////////////////////////////////
+// Utils
+
 #if WITH_EDITOR
 public:
 	UFlowNode* GetInspectedInstance() const;
-	EFlowNodeState GetActivationState() const { return ActivationState; }
 
 	TMap<uint8, FPinRecord> GetWireRecords() const;
 	TArray<FPinRecord> GetPinRecords(const FName& PinName, const EEdGraphPinDirection PinDirection) const;
 
 	// Information displayed while node is working - displayed over node as NodeInfoPopup
-	virtual FString GetStatusString() const;
+	FString GetStatusStringForNodeAndAddOns() const;
+	virtual bool GetStatusBackgroundColor(FLinearColor& OutColor) const;
 
 	virtual FString GetAssetPath();
 	virtual UObject* GetAssetToEdit();
@@ -287,32 +380,17 @@ public:
 #endif
 
 protected:
-	// Information displayed while node is working - displayed over node as NodeInfoPopup
-	UFUNCTION(BlueprintImplementableEvent, Category = "FlowNode", meta = (DisplayName = "GetStatusString"))
-	FString K2_GetStatusString() const;
+	UFUNCTION(BlueprintImplementableEvent, Category = "FlowNode", meta = (DisplayName = "Get Status Background Color"))
+	bool K2_GetStatusBackgroundColor(FLinearColor& OutColor) const;
 
-	UFUNCTION(BlueprintImplementableEvent, Category = "FlowNode", meta = (DisplayName = "GetAssetPath"))
+	UFUNCTION(BlueprintImplementableEvent, Category = "FlowNode", meta = (DisplayName = "Get Asset Path"))
 	FString K2_GetAssetPath();
 
-	UFUNCTION(BlueprintImplementableEvent, Category = "FlowNode", meta = (DisplayName = "GetAssetToEdit"))
+	UFUNCTION(BlueprintImplementableEvent, Category = "FlowNode", meta = (DisplayName = "Get Asset To Edit"))
 	UObject* K2_GetAssetToEdit();
 
-	UFUNCTION(BlueprintImplementableEvent, Category = "FlowNode", meta = (DisplayName = "GetActorToFocus"))
+	UFUNCTION(BlueprintImplementableEvent, Category = "FlowNode", meta = (DisplayName = "Get Actor To Focus"))
 	AActor* K2_GetActorToFocus();
-
-	template <typename T>
-	T* LoadAsset(TSoftObjectPtr<UObject> AssetPtr)
-	{
-		ensure(!AssetPtr.IsNull());
-
-		if (AssetPtr.IsPending())
-		{
-			const FSoftObjectPath& AssetRef = AssetPtr.ToSoftObjectPath();
-			AssetPtr = Cast<T>(StreamableManager.LoadSynchronous(AssetRef, false));
-		}
-
-		return Cast<T>(AssetPtr.Get());
-	}
 
 public:
 	UFUNCTION(BlueprintPure, Category = "FlowNode")
@@ -329,27 +407,494 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "FlowNode")
 	static FString GetProgressAsString(float Value);
-
-	UFUNCTION(BlueprintCallable, Category = "FlowNode")
-	void LogError(FString Message, const EFlowOnScreenMessageType OnScreenMessageType = EFlowOnScreenMessageType::Permanent) const;
-
-	UFUNCTION(BlueprintCallable, Category = "FlowNode")
-	void SaveInstance(FFlowNodeSaveData& NodeRecord);
-
-	UFUNCTION(BlueprintCallable, Category = "FlowNode")
-	void LoadInstance(const FFlowNodeSaveData& NodeRecord);
-
-protected:
-	UFUNCTION(BlueprintNativeEvent, Category = "FlowNode")
-	void OnSave();
-	
-	UFUNCTION(BlueprintNativeEvent, Category = "FlowNode")
-	void OnLoad();
-
-private:
-	UPROPERTY()
-	TArray<FName> InputNames_DEPRECATED;
-
-	UPROPERTY()
-	TArray<FName> OutputNames_DEPRECATED;
 };
+
+// Templates & inline implementations:
+
+template <typename TFlowDataPinResultType, typename TFlowDataPinProperty, typename TFieldPropertyType>
+TFlowDataPinResultType UFlowNode::TrySupplyDataPinAsType(const FName& PinName) const
+{
+	TFlowDataPinResultType SuppliedResult;
+
+	const FProperty* FoundProperty = nullptr;
+	TInstancedStruct<FFlowDataPinProperty> InstancedStruct;
+	if (!TryFindPropertyByPinName(PinName, FoundProperty, InstancedStruct, SuppliedResult.Result))
+	{
+		return SuppliedResult;
+	}
+
+	if (const TFlowDataPinProperty* FlowDataPinProp = InstancedStruct.GetPtr<TFlowDataPinProperty>())
+	{
+		// In some cases, TryFindPropertyByPinName can find an instanced struct for the wrapper,
+		// so get the value from it and return straight away
+
+		SuppliedResult.Value = FlowDataPinProp->Value;
+		SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+
+		return SuppliedResult;
+	}
+
+	// Check for struct-based wrapper for the property and get the value out of it
+	if (const FStructProperty* StructProperty = CastField<FStructProperty>(FoundProperty))
+	{
+		const UScriptStruct* FlowDataPinPropertyStruct = TFlowDataPinProperty::StaticStruct();
+
+		if (StructProperty->Struct == FlowDataPinPropertyStruct)
+		{
+			TFlowDataPinProperty ValueStruct;
+			StructProperty->GetValue_InContainer(this, &ValueStruct);
+
+			SuppliedResult.Value = ValueStruct.Value;
+			SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+		}
+
+		return SuppliedResult;
+	}
+
+	// Get the value from a UE simple property type
+	if (const TFieldPropertyType* UnrealProperty = CastField<TFieldPropertyType>(FoundProperty))
+	{
+		SuppliedResult.Value = UnrealProperty->GetPropertyValue_InContainer(this);
+		SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+
+		return SuppliedResult;
+	}
+
+	SuppliedResult.Result = EFlowDataPinResolveResult::FailedMismatchedType;
+
+	return SuppliedResult;
+}
+
+template <typename TFlowDataPinResultType, typename TFlowLargeDataPinProperty, typename TFlowMediumDataPinProperty>
+TFlowDataPinResultType UFlowNode::TrySupplyDataPinAsNumericType(const FName& PinName) const
+{
+	TFlowDataPinResultType SuppliedResult;
+
+	const FProperty* FoundProperty = nullptr;
+	TInstancedStruct<FFlowDataPinProperty> InstancedStruct;
+	if (!TryFindPropertyByPinName(PinName, FoundProperty, InstancedStruct, SuppliedResult.Result))
+	{
+		return SuppliedResult;
+	}
+
+	if (const FFlowDataPinProperty* FlowDataPinProp = InstancedStruct.GetPtr<FFlowDataPinProperty>())
+	{
+		// In some cases, TryFindPropertyByPinName can find an instanced struct for the wrapper,
+		// so get the value from it and return straight away
+
+		if (const TFlowLargeDataPinProperty* FlowDataPinPropLarge = InstancedStruct.GetPtr<TFlowLargeDataPinProperty>())
+		{
+			SuppliedResult.Value = FlowDataPinPropLarge->Value;
+			SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+
+			return SuppliedResult;
+		}
+		else if (const TFlowMediumDataPinProperty* FlowDataPinPropMedium = InstancedStruct.GetPtr<TFlowMediumDataPinProperty>())
+		{
+			SuppliedResult.Value = FlowDataPinPropMedium->Value;
+			SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+
+			return SuppliedResult;
+		}
+	}
+
+	// Check for struct-based wrapper for the property and get the value out of it
+	if (const FStructProperty* StructProperty = CastField<FStructProperty>(FoundProperty))
+	{
+		const UScriptStruct* FlowLargeDataPinPropertyStruct = TFlowLargeDataPinProperty::StaticStruct();
+		const UScriptStruct* FlowMediumDataPinPropertyStruct = TFlowMediumDataPinProperty::StaticStruct();
+
+		// Supporting both a 64 and 32 bit wrapper for ints/floats, given the ubiquity of int32/float.
+		if (StructProperty->Struct == FlowLargeDataPinPropertyStruct)
+		{
+			TFlowLargeDataPinProperty ValueStruct;
+			StructProperty->GetValue_InContainer(this, &ValueStruct);
+
+			SuppliedResult.Value = ValueStruct.Value;
+			SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+		}
+		else if (StructProperty->Struct == FlowMediumDataPinPropertyStruct)
+		{
+			TFlowMediumDataPinProperty ValueStruct;
+			StructProperty->GetValue_InContainer(this, &ValueStruct);
+
+			SuppliedResult.Value = ValueStruct.Value;
+			SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+		}
+
+		return SuppliedResult;
+	}
+
+	// Get the value from a UE simple property type
+	if (const FNumericProperty* NumericProperty = CastField<FNumericProperty>(FoundProperty))
+	{
+		if (const FFloatProperty* FloatProperty = CastField<FFloatProperty>(NumericProperty))
+		{
+			float FloatValue;
+			FloatProperty->GetValue_InContainer(this, &FloatValue);
+			SuppliedResult.Value = FloatValue;
+		}
+		else if (const FDoubleProperty* DoubleProperty = CastField<FDoubleProperty>(NumericProperty))
+		{
+			double DoubleValue;
+			DoubleProperty->GetValue_InContainer(this, &DoubleValue);
+			SuppliedResult.Value = DoubleValue;
+		}
+		else
+		{
+			SuppliedResult.Value = NumericProperty->GetSignedIntPropertyValue_InContainer(this);
+		}
+
+		SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+
+		return SuppliedResult;
+	}
+
+	SuppliedResult.Result = EFlowDataPinResolveResult::FailedMismatchedType;
+
+	return SuppliedResult;
+}
+
+template <typename TFlowDataPinResultType>
+TFlowDataPinResultType UFlowNode::TrySupplyDataPinAsAnyTextType(const FName& PinName) const
+{
+	TFlowDataPinResultType SuppliedResult;
+
+	const FProperty* FoundProperty = nullptr;
+	TInstancedStruct<FFlowDataPinProperty> InstancedStruct;
+	if (!TryFindPropertyByPinName(PinName, FoundProperty, InstancedStruct, SuppliedResult.Result))
+	{
+		return SuppliedResult;
+	}
+
+	if (const FFlowDataPinProperty* FlowDataPinProp = InstancedStruct.GetPtr<FFlowDataPinProperty>())
+	{
+		// In some cases, TryFindPropertyByPinName can find an instanced struct for the wrapper,
+		// so get the value from it and return straight away
+
+		if (const FFlowDataPinOutputProperty_Name* FlowDataPinPropName = InstancedStruct.GetPtr<FFlowDataPinOutputProperty_Name>())
+		{
+			SuppliedResult.SetValue(FlowDataPinPropName->Value);
+			SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+
+			return SuppliedResult;
+		}
+		else if (const FFlowDataPinOutputProperty_String* FlowDataPinPropString = InstancedStruct.GetPtr<FFlowDataPinOutputProperty_String>())
+		{
+			SuppliedResult.SetValue(FlowDataPinPropString->Value);
+			SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+
+			return SuppliedResult;
+		}
+		else if (const FFlowDataPinOutputProperty_Text* FlowDataPinPropText = InstancedStruct.GetPtr<FFlowDataPinOutputProperty_Text>())
+		{
+			SuppliedResult.SetValue(FlowDataPinPropText->Value);
+			SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+
+			return SuppliedResult;
+		}
+	}
+
+	// Check for struct-based wrapper for the property and get the value out of it
+	if (const FStructProperty* StructProperty = CastField<FStructProperty>(FoundProperty))
+	{
+		const UScriptStruct* FlowDataPinPropertyStruct_Name = FFlowDataPinOutputProperty_Name::StaticStruct();
+		const UScriptStruct* FlowDataPinPropertyStruct_String = FFlowDataPinOutputProperty_String::StaticStruct();
+		const UScriptStruct* FlowDataPinPropertyStruct_Text = FFlowDataPinOutputProperty_Text::StaticStruct();
+
+		if (StructProperty->Struct == FlowDataPinPropertyStruct_Name)
+		{
+			FFlowDataPinOutputProperty_Name ValueStruct;
+			StructProperty->GetValue_InContainer(this, &ValueStruct);
+
+			SuppliedResult.SetValue(ValueStruct.Value);
+			SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+		}
+		else if (StructProperty->Struct == FlowDataPinPropertyStruct_String)
+		{
+			FFlowDataPinOutputProperty_String ValueStruct;
+			StructProperty->GetValue_InContainer(this, &ValueStruct);
+
+			SuppliedResult.SetValue(ValueStruct.Value);
+			SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+		}
+		else if (StructProperty->Struct == FlowDataPinPropertyStruct_Text)
+		{
+			FFlowDataPinOutputProperty_Text ValueStruct;
+			StructProperty->GetValue_InContainer(this, &ValueStruct);
+
+			SuppliedResult.SetValue(ValueStruct.Value);
+			SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+		}
+
+		return SuppliedResult;
+	}
+	
+	// Get the value from a UE simple property type
+	if (const FNameProperty* NameProperty = CastField<FNameProperty>(FoundProperty))
+	{
+		SuppliedResult.SetValue(NameProperty->GetPropertyValue_InContainer(this));
+		SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+
+		return SuppliedResult;
+	}
+	else if (const FStrProperty* StrProperty = CastField<FStrProperty>(FoundProperty))
+	{
+		SuppliedResult.SetValue(StrProperty->GetPropertyValue_InContainer(this));
+		SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+
+		return SuppliedResult;
+	}
+	else if (const FTextProperty* TextProperty = CastField<FTextProperty>(FoundProperty))
+	{
+		SuppliedResult.SetValue(TextProperty->GetPropertyValue_InContainer(this));
+		SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+
+		return SuppliedResult;
+	}
+	else
+	{
+		SuppliedResult.Result = EFlowDataPinResolveResult::FailedMismatchedType;
+
+		return SuppliedResult;
+	}
+}
+
+FFlowDataPinResult_Enum UFlowNode::TrySupplyDataPinAsEnumType(const FName& PinName) const
+{
+	FFlowDataPinResult_Enum SuppliedResult;
+
+	const FProperty* FoundProperty = nullptr;
+	TInstancedStruct<FFlowDataPinProperty> InstancedStruct;
+	if (!TryFindPropertyByPinName(PinName, FoundProperty, InstancedStruct, SuppliedResult.Result))
+	{
+		return SuppliedResult;
+	}
+
+	if (const FFlowDataPinOutputProperty_Enum* FlowDataPinProp = InstancedStruct.GetPtr<FFlowDataPinOutputProperty_Enum>())
+	{
+		// In some cases, TryFindPropertyByPinName can find an instanced struct for the wrapper,
+		// so get the value from it and return straight away
+
+		SuppliedResult.Value = FlowDataPinProp->Value;
+		SuppliedResult.EnumClass = FlowDataPinProp->EnumClass;
+		SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+
+		return SuppliedResult;
+	}
+
+	// Check for struct-based wrapper for the property and get the value out of it
+	if (const FStructProperty* StructProperty = CastField<FStructProperty>(FoundProperty))
+	{
+		const UScriptStruct* FlowDataPinPropertyStruct_Enum = FFlowDataPinOutputProperty_Enum::StaticStruct();
+
+		if (StructProperty->Struct == FlowDataPinPropertyStruct_Enum)
+		{
+			FFlowDataPinOutputProperty_Enum ValueStruct;
+			StructProperty->GetValue_InContainer(this, &ValueStruct);
+
+			SuppliedResult.Value = ValueStruct.Value;
+			SuppliedResult.EnumClass = ValueStruct.EnumClass;
+			SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+		}
+
+		return SuppliedResult;
+	}
+
+	// Get the value from a UE enum property type
+	if (const FEnumProperty* EnumProperty = CastField<FEnumProperty>(FoundProperty))
+	{
+		UEnum* EnumClass = EnumProperty->GetEnum();
+
+		const FNumericProperty* UnderlyingProperty = EnumProperty->GetUnderlyingProperty();
+		const int64 SignedIntValue = UnderlyingProperty->GetSignedIntPropertyValue_InContainer(this);
+		const FString StringValue = EnumClass->GetAuthoredNameStringByValue(SignedIntValue);
+
+		SuppliedResult.Value = FName(StringValue);
+		SuppliedResult.EnumClass = EnumClass;
+		SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+
+		return SuppliedResult;
+	}
+	else
+	{
+		SuppliedResult.Result = EFlowDataPinResolveResult::FailedMismatchedType;
+
+		return SuppliedResult;
+	}
+}
+
+template <typename TFlowDataPinResultType, typename TFlowDataPinProperty, typename TTargetStruct>
+TFlowDataPinResultType UFlowNode::TrySupplyDataPinAsStructType(const FName& PinName) const
+{
+	TFlowDataPinResultType SuppliedResult;
+
+	const FProperty* FoundProperty = nullptr;
+	TInstancedStruct<FFlowDataPinProperty> InstancedStruct;
+	if (!TryFindPropertyByPinName(PinName, FoundProperty, InstancedStruct, SuppliedResult.Result))
+	{
+		return SuppliedResult;
+	}
+
+	if (const TFlowDataPinProperty* FlowDataPinProp = InstancedStruct.GetPtr<TFlowDataPinProperty>())
+	{
+		// In some cases, TryFindPropertyByPinName can find an instanced struct for the wrapper,
+		// so get the value from it and return straight away
+
+		SuppliedResult.Value = FlowDataPinProp->Value;
+		SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+
+		return SuppliedResult;
+	}
+
+	const FStructProperty* StructProperty = CastField<FStructProperty>(FoundProperty);
+	if (!StructProperty)
+	{
+		SuppliedResult.Result = EFlowDataPinResolveResult::FailedMismatchedType;
+
+		return SuppliedResult;
+	}
+
+	const UScriptStruct* FlowDataPinPropertyStruct = TFlowDataPinProperty::StaticStruct();
+	static const UScriptStruct* TargetPropertyStruct = TBaseStructure<TTargetStruct>::Get();
+
+	if (StructProperty->Struct == FlowDataPinPropertyStruct)
+	{
+		// Check for struct-based wrapper for the property and get the value out of it
+
+		TFlowDataPinProperty ValueStruct;
+		StructProperty->GetValue_InContainer(this, &ValueStruct);
+
+		SuppliedResult.Value = ValueStruct.Value;
+		SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+
+		return SuppliedResult;
+	}
+	else if (StructProperty->Struct == TargetPropertyStruct)
+	{
+		// Get the value from a UE struct (non-wrapper) property type
+
+		TTargetStruct TargetStruct;
+		StructProperty->GetValue_InContainer(this, &TargetStruct);
+
+		SuppliedResult.Value = TargetStruct;
+		SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+
+		return SuppliedResult;
+	}
+	else
+	{
+		SuppliedResult.Result = EFlowDataPinResolveResult::FailedMismatchedType;
+
+		return SuppliedResult;
+	}
+}
+
+template <typename TFlowDataPinResultType, typename TFlowDataPinProperty, typename TUObjectType,
+	typename TFieldPropertyObjectType0, typename TFieldPropertySoftObjectType1>
+TFlowDataPinResultType UFlowNode::TrySupplyDataPinAsUObjectTypeCommon(const FName& PinName, const FProperty*& OutFoundProperty) const
+{
+	TFlowDataPinResultType SuppliedResult;
+
+	TInstancedStruct<FFlowDataPinProperty> InstancedStruct;
+	if (!TryFindPropertyByPinName(PinName, OutFoundProperty, InstancedStruct, SuppliedResult.Result))
+	{
+		return SuppliedResult;
+	}
+
+	if (const TFlowDataPinProperty* FlowDataPinProp = InstancedStruct.GetPtr<TFlowDataPinProperty>())
+	{
+		// In some cases, TryFindPropertyByPinName can find an instanced struct for the wrapper,
+		// so get the value from it and return straight away
+
+		SuppliedResult.SetValueFromPropertyWrapper(*FlowDataPinProp);
+		SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+
+		return SuppliedResult;
+	}
+
+	// Check for struct-based wrapper for the property and get the value out of it
+	if (const FStructProperty* StructProperty = CastField<FStructProperty>(OutFoundProperty))
+	{
+		const UScriptStruct* FlowDataPinPropertyStruct = TFlowDataPinProperty::StaticStruct();
+
+		if (StructProperty->Struct == FlowDataPinPropertyStruct)
+		{
+			TFlowDataPinProperty ValueStruct;
+			StructProperty->GetValue_InContainer(this, &ValueStruct);
+
+			SuppliedResult.SetValueFromPropertyWrapper(ValueStruct);
+			SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+		}
+
+		return SuppliedResult;
+	}
+
+	// Get the value from one of the UE simple property types
+	if (const TFieldPropertyObjectType0* UnrealProperty0 = CastField<TFieldPropertyObjectType0>(OutFoundProperty))
+	{
+		// TObjectPtr / UObject*
+		TUObjectType* Object = Cast<TUObjectType>(UnrealProperty0->GetPropertyValue_InContainer(this));
+		SuppliedResult.SetValueFromObjectPtr(Object);
+		SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+
+		return SuppliedResult;
+	}
+
+	if (const TFieldPropertySoftObjectType1* UnrealProperty1 = CastField<TFieldPropertySoftObjectType1>(OutFoundProperty))
+	{
+		// FSoftObjectPath / TSoftObjectPtr (or their Class variants)
+		const FSoftObjectPath SoftObjectPath = UnrealProperty1->GetPropertyValue_InContainer(this).ToSoftObjectPath();
+		SuppliedResult.SetValueFromSoftPath(SoftObjectPath);
+		SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+
+		return SuppliedResult;
+	}
+
+	SuppliedResult.Result = EFlowDataPinResolveResult::FailedMismatchedType;
+
+	return SuppliedResult;
+}
+
+template <typename TFlowDataPinResultType, typename TFlowDataPinProperty, typename TUObjectType,
+		  typename TFieldPropertyObjectType0, typename TFieldPropertySoftObjectType1, typename TFieldPropertyWeakType2, typename TFieldPropertyLazyType3>
+TFlowDataPinResultType UFlowNode::TrySupplyDataPinAsUObjectType(const FName& PinName) const
+{
+	// First execute TrySupplyDataPinAsUObjectTypeCommon to handle all of the shared cases between UObject and UClass properties:
+	const FProperty* FoundProperty = nullptr;
+	TFlowDataPinResultType SuppliedResult = 
+		TrySupplyDataPinAsUObjectTypeCommon<TFlowDataPinResultType, TFlowDataPinProperty, TUObjectType, TFieldPropertyObjectType0, TFieldPropertySoftObjectType1>(PinName, FoundProperty);
+
+	if (SuppliedResult.Result == EFlowDataPinResolveResult::FailedMismatchedType)
+	{
+		if (const TFieldPropertyWeakType2* UnrealProperty2 = CastField<TFieldPropertyWeakType2>(FoundProperty))
+		{
+			// TWeakObjectPtr
+			TUObjectType* Object = Cast<TUObjectType>(UnrealProperty2->GetPropertyValue_InContainer(this).Get());
+			SuppliedResult.SetValueFromObjectPtr(Object);
+			SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+
+			return SuppliedResult;
+		}
+
+		if (const TFieldPropertyLazyType3* UnrealProperty3 = CastField<TFieldPropertyLazyType3>(FoundProperty))
+		{
+			// FLazyObjectPtr
+			TUObjectType* Object = Cast<TUObjectType>(UnrealProperty3->GetPropertyValue_InContainer(this).Get());
+			SuppliedResult.SetValueFromObjectPtr(Object);
+			SuppliedResult.Result = EFlowDataPinResolveResult::Success;
+
+			return SuppliedResult;
+		}
+	}
+
+	return SuppliedResult;
+}
+
+template <typename TFlowDataPinResultType, typename TFlowDataPinProperty, typename TUObjectType,
+	typename TFieldPropertyObjectType0, typename TFieldPropertySoftObjectType1>
+TFlowDataPinResultType UFlowNode::TrySupplyDataPinAsUClassType(const FName& PinName) const
+{
+	const FProperty* FoundProperty = nullptr;
+	return TrySupplyDataPinAsUObjectTypeCommon<TFlowDataPinResultType, TFlowDataPinProperty, TUObjectType, TFieldPropertyObjectType0, TFieldPropertySoftObjectType1>(PinName, FoundProperty);
+}

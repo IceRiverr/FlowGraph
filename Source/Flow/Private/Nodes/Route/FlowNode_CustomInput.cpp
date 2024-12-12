@@ -1,13 +1,15 @@
+// Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #include "Nodes/Route/FlowNode_CustomInput.h"
+#include "FlowSettings.h"
+
+#include UE_INLINE_GENERATED_CPP_BY_NAME(FlowNode_CustomInput)
+
+#define LOCTEXT_NAMESPACE "FlowNode_CustomInput"
 
 UFlowNode_CustomInput::UFlowNode_CustomInput(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-#if WITH_EDITOR
-	Category = TEXT("Route");
-	NodeStyle = EFlowNodeStyle::InOut;
-#endif
-
 	InputPins.Empty();
 }
 
@@ -17,8 +19,15 @@ void UFlowNode_CustomInput::ExecuteInput(const FName& PinName)
 }
 
 #if WITH_EDITOR
-FString UFlowNode_CustomInput::GetNodeDescription() const
+FText UFlowNode_CustomInput::GetNodeTitle() const
 {
-	return EventName.ToString();
+	if (!EventName.IsNone() && UFlowSettings::Get()->bUseAdaptiveNodeTitles)
+	{
+		return FText::Format(LOCTEXT("CustomInputTitle", "{0} Input"), {FText::FromString(EventName.ToString())});
+	}
+
+	return Super::GetNodeTitle();
 }
 #endif
+
+#undef LOCTEXT_NAMESPACE
